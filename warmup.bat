@@ -1,35 +1,41 @@
 @echo off
-title Lab Maintenance Warm-Up
+setlocal EnableDelayedExpansion
+
+:: Read PC ID
+set /p PCID=<C:\LabMaintenance\pc_id.txt
+
+:: Detect CPU cores
+set CORES=%NUMBER_OF_PROCESSORS%
+set /a LOAD=%CORES%/2
+if %LOAD% LSS 1 set LOAD=1
 
 :: Log start
 echo ============================== >> C:\LabMaintenance\log.txt
-echo Started at %date% %time% >> C:\LabMaintenance\log.txt
+echo PC: %PCID% >> C:\LabMaintenance\log.txt
+echo Started: %date% %time% >> C:\LabMaintenance\log.txt
+echo Cores: %CORES%  LoadThreads: %LOAD% >> C:\LabMaintenance\log.txt
 
-:: -------- CPU LOAD (SAFE) --------
-echo Running CPU warm-up...
-
-for /L %%A in (1,1,4) do (
+:: CPU load
+for /L %%A in (1,1,%LOAD%) do (
     start "" cmd /c "for /L %%B in () do rem"
 )
 
-:: -------- DISK ACTIVITY --------
-echo Running disk activity...
-
+:: Disk activity
 for /L %%C in (1,1,5) do (
     fsutil file createnew C:\LabMaintenance\temp%%C.tmp 50000000
     del C:\LabMaintenance\temp%%C.tmp
 )
 
-:: -------- WARM-UP TIME --------
+:: Warm-up time (30 min)
 timeout /t 1800 /nobreak
 
-:: -------- STOP LOAD --------
+:: Stop load
 taskkill /F /IM cmd.exe >nul 2>&1
 
-:: -------- COOL DOWN --------
+:: Cool-down (10 min)
 timeout /t 600 /nobreak
 
-:: Log shutdown
-echo Shutdown at %date% %time% >> C:\LabMaintenance\log.txt
+:: Log end
+echo Finished: %date% %time% >> C:\LabMaintenance\log.txt
 
 shutdown /s /t 0
