@@ -1,16 +1,22 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title Lab Maintenance Warm-up
+title Lab Maintenance – Production Mode
 
 :: ===============================
 :: ADMIN CHECK
 :: ===============================
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    echo ERROR: Run as Administrator.
+    echo ERROR: Run this script as Administrator.
     pause
     exit /b 1
 )
+
+:: ===============================
+:: CONFIGURATION (EDIT ONLY HERE)
+:: ===============================
+set WARMUP_MINUTES=30
+set SHUTDOWN_WARNING_SECONDS=120
 
 :: ===============================
 :: PATHS
@@ -26,22 +32,27 @@ if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%"
 :: EMERGENCY STOP
 :: ===============================
 if exist "%BASEDIR%\STOP.txt" (
-    echo STOP detected. >> "%LOGFILE%"
+    echo Emergency STOP detected. >> "%LOGFILE%"
+    echo STOP.txt present. Script aborted.
     exit /b 0
 )
 
 :: ===============================
 :: READ PC ID
 :: ===============================
-if not exist "%PCIDFILE%" exit /b 1
+if not exist "%PCIDFILE%" (
+    echo ERROR: pc_id.txt missing >> "%LOGFILE%"
+    exit /b 1
+)
 set /p PCID=<"%PCIDFILE%"
 
 :: ===============================
-:: DATE FORMATTING (SAFE)
+:: DATE & TIME (STABLE FORMAT)
 :: ===============================
 for /f %%A in ('wmic os get localdatetime ^| find "."') do set DT=%%A
 set DATE=%DT:~0,4%-%DT:~4,2%-%DT:~6,2%
-set TIME=%DT:~8,2%:%DT:~10,2%
+set STARTTIME=%DT:~8,2%:%DT:~10,2%
+set ENDTIME=
 
 set HEALTHFILE=%HEALTHDIR%\Health_%DATE%_%PCID%.txt
 
@@ -50,7 +61,7 @@ set HEALTHFILE=%HEALTHDIR%\Health_%DATE%_%PCID%.txt
 :: ===============================
 echo ============================== >> "%LOGFILE%"
 echo PC ID: %PCID% >> "%LOGFILE%"
-echo Start: %DATE% %TIME% >> "%LOGFILE%"
+echo Start: %DATE% %STARTTIME% >> "%LOGFILE%"
 
 :: ===============================
 :: CPU AUTO LOAD
@@ -60,16 +71,16 @@ set /a LOAD=%CORES%/2
 if %LOAD% LSS 1 set LOAD=1
 
 :: ===============================
-:: WRITE HEALTH HEADER
+:: HEALTH FILE HEADER
 :: ===============================
 echo PC ID: %PCID% > "%HEALTHFILE%"
 echo Date: %DATE% >> "%HEALTHFILE%"
-echo Start Time: %TIME% >> "%HEALTHFILE%"
+echo Start Time: %STARTTIME% >> "%HEALTHFILE%"
 echo CPU Cores: %CORES% >> "%HEALTHFILE%"
 echo Load Threads: %LOAD% >> "%HEALTHFILE%"
 
 :: ===============================
-:: START CPU LOAD
+:: START CPU LOAD (TAGGED)
 :: ===============================
 for /L %%A in (1,1,%LOAD%) do (
     start "LAB_CPU_LOAD_%PCID%" /B cmd /c "for /L %%B in () do rem"
@@ -78,7 +89,7 @@ for /L %%A in (1,1,%LOAD%) do (
 echo CPU load started >> "%LOGFILE%"
 
 :: ===============================
-:: DISK ACTIVITY
+:: DISK ACTIVITY (LIGHT)
 :: ===============================
 for /L %%C in (1,1,2) do (
     fsutil file createnew "%BASEDIR%\temp%%C.tmp" 20000000 >nul 2>&1
@@ -88,27 +99,38 @@ for /L %%C in (1,1,2) do (
 echo Disk Activity: OK >> "%HEALTHFILE%"
 
 :: ===============================
-:: WARM-UP LOOP (Ctrl+C SAFE)
+:: WARM-UP COUNTDOWN (BLUE TEXT)
 :: ===============================
-set SECONDS=180
-:WAITLOOP
-timeout /t 5 >nul
-set /a SECONDS-=5
-if %SECONDS% GTR 0 goto WAITLOOP
+set REMAIN=%WARMUP_MINUTES%
+color 0B
+
+:COUNTDOWN
+if %REMAIN% LEQ 0 goto END_WARMUP
+echo Remaining warm-up time: %REMAIN% minute(s)
+timeout /t 60 >nul
+set /a REMAIN-=1
+goto COUNTDOWN
 
 :: ===============================
-:: CLEANUP SECTION
+:: END WARM-UP
 :: ===============================
-:CLEANUP
+:END_WARMUP
+color 07
+
 taskkill /F /FI "WINDOWTITLE eq LAB_CPU_LOAD_%PCID%" >nul 2>&1
 
 for /f %%A in ('wmic os get localdatetime ^| find "."') do set DT=%%A
-set ETIME=%DT:~8,2%:%DT:~10,2%
+set ENDTIME=%DT:~8,2%:%DT:~10,2%
 
-echo End Time: %ETIME% >> "%HEALTHFILE%"
+echo End Time: %ENDTIME% >> "%HEALTHFILE%"
 echo Run Status: COMPLETED >> "%HEALTHFILE%"
 
-echo End: %DATE% %ETIME% >> "%LOGFILE%"
+echo End: %DATE% %ENDTIME% >> "%LOGFILE%"
 
-shutdown /s /t 120 /c "Maintenance complete on %PCID%. Shutdown in 2 minutes. Use shutdown /a to cancel."
+:: ===============================
+:: SHUTDOWN WARNING
+:: ===============================
+shutdown /s /t %SHUTDOWN_WARNING_SECONDS% /c "Lab maintenance completed on %PCID%. Shutdown in 2 minutes. Use shutdown /a to cancel."
+
+endlocal
 exit /b 0
