@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableExtensions EnableDelayedExpansion
 
 set BASEDIR=C:\LabMaintenance
 set LOGFILE=%BASEDIR%\log.txt
@@ -10,8 +10,15 @@ set /p PCID=<"%PCIDFILE%"
 
 set REPORT=%BASEDIR%\Monthly_Report_%PCID%.txt
 
-for /f "tokens=2 delims=:" %%A in ('find /c "Start:" "%LOGFILE%"') do set RUNS=%%A
-for /f "delims=" %%A in ('find "Start:" "%LOGFILE%"') do set LAST=%%A
+:: Correctly extract run count
+for /f "tokens=2 delims=:" %%A in ('find /c "Start:" "%LOGFILE%"') do (
+    set RUNS=%%A
+)
+
+:: Get last run safely
+for /f "delims=" %%A in ('find "Start:" "%LOGFILE%"') do (
+    set LAST=%%A
+)
 
 echo ============================== > "%REPORT%"
 echo PC ID: %PCID% >> "%REPORT%"
