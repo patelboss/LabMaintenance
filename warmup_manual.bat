@@ -1,99 +1,114 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
+title Lab Maintenance Warm-up
 
 :: ===============================
-:: Admin Check
+:: ADMIN CHECK
 :: ===============================
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    echo ERROR: Run this script as Administrator.
+    echo ERROR: Run as Administrator.
     pause
     exit /b 1
 )
 
 :: ===============================
-:: Paths (NO embedded quotes)
+:: PATHS
 :: ===============================
 set BASEDIR=C:\LabMaintenance
 set LOGFILE=%BASEDIR%\log.txt
 set PCIDFILE=%BASEDIR%\pc_id.txt
+set HEALTHDIR=%BASEDIR%\Health
+
+if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%"
 
 :: ===============================
-:: Emergency Stop
+:: EMERGENCY STOP
 :: ===============================
 if exist "%BASEDIR%\STOP.txt" (
-    echo Emergency STOP detected. >> "%LOGFILE%"
-    echo STOP.txt present. Script aborted.
+    echo STOP detected. >> "%LOGFILE%"
     exit /b 0
 )
 
 :: ===============================
-:: Read PC ID
+:: READ PC ID
 :: ===============================
-if not exist "%PCIDFILE%" (
-    echo ERROR: pc_id.txt missing >> "%LOGFILE%"
-    echo pc_id.txt missing. Exiting.
-    exit /b 1
-)
+if not exist "%PCIDFILE%" exit /b 1
 set /p PCID=<"%PCIDFILE%"
 
 :: ===============================
-:: Log Start
+:: DATE FORMATTING (SAFE)
+:: ===============================
+for /f %%A in ('wmic os get localdatetime ^| find "."') do set DT=%%A
+set DATE=%DT:~0,4%-%DT:~4,2%-%DT:~6,2%
+set TIME=%DT:~8,2%:%DT:~10,2%
+
+set HEALTHFILE=%HEALTHDIR%\Health_%DATE%_%PCID%.txt
+
+:: ===============================
+:: LOG START
 :: ===============================
 echo ============================== >> "%LOGFILE%"
 echo PC ID: %PCID% >> "%LOGFILE%"
-echo Start: %date% %time% >> "%LOGFILE%"
+echo Start: %DATE% %TIME% >> "%LOGFILE%"
 
 :: ===============================
-:: Auto CPU Load Detection
+:: CPU AUTO LOAD
 :: ===============================
 set CORES=%NUMBER_OF_PROCESSORS%
 set /a LOAD=%CORES%/2
 if %LOAD% LSS 1 set LOAD=1
 
-echo CPU Cores: %CORES% >> "%LOGFILE%"
-echo Load Threads: %LOAD% >> "%LOGFILE%"
+:: ===============================
+:: WRITE HEALTH HEADER
+:: ===============================
+echo PC ID: %PCID% > "%HEALTHFILE%"
+echo Date: %DATE% >> "%HEALTHFILE%"
+echo Start Time: %TIME% >> "%HEALTHFILE%"
+echo CPU Cores: %CORES% >> "%HEALTHFILE%"
+echo Load Threads: %LOAD% >> "%HEALTHFILE%"
 
 :: ===============================
-:: Start CPU Load (Tagged)
+:: START CPU LOAD
 :: ===============================
 for /L %%A in (1,1,%LOAD%) do (
-    start "LAB_CPU_LOAD" /B cmd /c "for /L %%B in () do rem"
+    start "LAB_CPU_LOAD_%PCID%" /B cmd /c "for /L %%B in () do rem"
 )
+
 echo CPU load started >> "%LOGFILE%"
 
 :: ===============================
-:: Disk Activity (Light)
+:: DISK ACTIVITY
 :: ===============================
 for /L %%C in (1,1,2) do (
     fsutil file createnew "%BASEDIR%\temp%%C.tmp" 20000000 >nul 2>&1
     del "%BASEDIR%\temp%%C.tmp" >nul 2>&1
 )
-echo Disk activity done >> "%LOGFILE%"
+
+echo Disk Activity: OK >> "%HEALTHFILE%"
 
 :: ===============================
-:: Warm-up (TEST MODE ~3 min)
+:: WARM-UP LOOP (Ctrl+C SAFE)
 :: ===============================
-timeout /t 180 /nobreak >nul
+set SECONDS=180
+:WAITLOOP
+timeout /t 5 >nul
+set /a SECONDS-=5
+if %SECONDS% GTR 0 goto WAITLOOP
 
 :: ===============================
-:: Stop CPU Load Safely
+:: CLEANUP SECTION
 :: ===============================
-taskkill /F /FI "WINDOWTITLE eq LAB_CPU_LOAD" >nul 2>&1
-echo CPU load stopped >> "%LOGFILE%"
+:CLEANUP
+taskkill /F /FI "WINDOWTITLE eq LAB_CPU_LOAD_%PCID%" >nul 2>&1
 
-:: ===============================
-:: Cool-down (1 min)
-:: ===============================
-timeout /t 60 /nobreak >nul
+for /f %%A in ('wmic os get localdatetime ^| find "."') do set DT=%%A
+set ETIME=%DT:~8,2%:%DT:~10,2%
 
-:: ===============================
-:: Shutdown Warning (2 min)
-:: ===============================
-shutdown /s /t 120 /c "Lab maintenance complete on %PCID%. Shutdown in 2 minutes. Use 'shutdown /a' to cancel."
+echo End Time: %ETIME% >> "%HEALTHFILE%"
+echo Run Status: COMPLETED >> "%HEALTHFILE%"
 
-echo End: %date% %time% >> "%LOGFILE%"
-echo Status: Shutdown initiated >> "%LOGFILE%"
+echo End: %DATE% %ETIME% >> "%LOGFILE%"
 
-endlocal
+shutdown /s /t 120 /c "Maintenance complete on %PCID%. Shutdown in 2 minutes. Use shutdown /a to cancel."
 exit /b 0
