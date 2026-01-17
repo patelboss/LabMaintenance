@@ -116,4 +116,5 @@ exit /b 0
 :: RELIABLE 1-SECOND DELAY
 :: ==================================================
 :DELAY_1S
-ping 127.0
+ping 127.0.0.1 -n 2 >nul
+exit /b
