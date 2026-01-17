@@ -1,17 +1,23 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title Lab Maintenance – Production (DEBUG)
+title Lab Maintenance – Production (SECONDS MODE)
 
 :: ==================================================
-:: SIMPLE LOG FUNCTION (INLINE)
+:: BASE PATHS
 :: ==================================================
 set BASEDIR=C:\LabMaintenance
 set LOGFILE=%BASEDIR%\log.txt
+set CPULOADER=%BASEDIR%\cpu_load.cmd
+set PCIDFILE=%BASEDIR%\pc_id.txt
+set HEALTHDIR=%BASEDIR%\Health
+set MONTHLYDIR=%HEALTHDIR%\Monthly
 
 if not exist "%BASEDIR%" mkdir "%BASEDIR%"
+if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%"
+if not exist "%MONTHLYDIR%" mkdir "%MONTHLYDIR%"
 
 echo. >> "%LOGFILE%"
-echo ===== SCRIPT STARTED %date% %time% ===== >> "%LOGFILE%"
+echo ===== SCRIPT START %date% %time% ===== >> "%LOGFILE%"
 
 :: ==================================================
 :: ADMIN CHECK
@@ -19,41 +25,25 @@ echo ===== SCRIPT STARTED %date% %time% ===== >> "%LOGFILE%"
 echo [STEP] Checking admin rights >> "%LOGFILE%"
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Not running as admin >> "%LOGFILE%"
-    echo ERROR: Run as Administrator.
+    echo [ERROR] Not admin >> "%LOGFILE%"
     pause
     exit /b 1
 )
-echo [OK] Admin check passed >> "%LOGFILE%"
+echo [OK] Admin confirmed >> "%LOGFILE%"
 
 :: ==================================================
-:: CONFIGURATION
+:: CONFIGURATION (SECONDS)
 :: ==================================================
-set WARMUP_MINUTES=30
+set WARMUP_SECONDS=1800
 set SHUTDOWN_WARNING_SECONDS=120
 
-echo [CONFIG] Warmup=%WARMUP_MINUTES% min, Shutdown=%SHUTDOWN_WARNING_SECONDS% sec >> "%LOGFILE%"
-
-:: ==================================================
-:: PATHS
-:: ==================================================
-set CPULOADER=%BASEDIR%\cpu_load.cmd
-set PCIDFILE=%BASEDIR%\pc_id.txt
-set HEALTHDIR=%BASEDIR%\Health
-set MONTHLYDIR=%HEALTHDIR%\Monthly
-
-if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%"
-if not exist "%MONTHLYDIR%" mkdir "%MONTHLYDIR%"
-
-echo [OK] Paths verified >> "%LOGFILE%"
+echo [CONFIG] Warmup=%WARMUP_SECONDS% sec Shutdown=%SHUTDOWN_WARNING_SECONDS% sec >> "%LOGFILE%"
 
 :: ==================================================
 :: WRITE MODE CHECK
 :: ==================================================
-echo [STEP] Checking write capability >> "%LOGFILE%"
 set WRITE_MODE=0
 echo test > "%BASEDIR%\.__write_test.tmp" 2>nul
-
 if exist "%BASEDIR%\.__write_test.tmp" (
     del "%BASEDIR%\.__write_test.tmp" >nul 2>&1
     set WRITE_MODE=1
@@ -70,16 +60,14 @@ if not exist "%PCIDFILE%" (
     exit /b 1
 )
 set /p PCID=<"%PCIDFILE%"
-echo [INFO] PC ID = %PCID% >> "%LOGFILE%"
+echo [INFO] PC ID=%PCID% >> "%LOGFILE%"
 
 :: ==================================================
-:: DATE / TIME SAFE
+:: DATE / TIME (SAFE)
 :: ==================================================
 for /f %%A in ('wmic os get localdatetime ^| find "."') do set DTS=%%A
 set CURRDATE=%DTS:~0,4%-%DTS:~4,2%-%DTS:~6,2%
-set CURRTIME=%DTS:~8,2%:%DTS:~10,2%
-
-echo [INFO] Date=%CURRDATE% Time=%CURRTIME% >> "%LOGFILE%"
+set STARTTIME=%DTS:~8,2%:%DTS:~10,2%
 
 set HEALTHFILE=%HEALTHDIR%\Health_%CURRDATE%_%PCID%.txt
 set MONTHLYFILE=%MONTHLYDIR%\Monthly_%CURRDATE:~0,7%_%PCID%.txt
@@ -90,8 +78,7 @@ set MONTHLYFILE=%MONTHLYDIR%\Monthly_%CURRDATE:~0,7%_%PCID%.txt
 set CORES=%NUMBER_OF_PROCESSORS%
 set /a LOAD=%CORES%/2
 if %LOAD% LSS 1 set LOAD=1
-
-echo [INFO] CPU Cores=%CORES%, Load Threads=%LOAD% >> "%LOGFILE%"
+echo [INFO] CPU cores=%CORES% LoadThreads=%LOAD% >> "%LOGFILE%"
 
 :: ==================================================
 :: HEALTH FILE HEADER
@@ -99,7 +86,7 @@ echo [INFO] CPU Cores=%CORES%, Load Threads=%LOAD% >> "%LOGFILE%"
 if "%WRITE_MODE%"=="1" (
     echo PC ID: %PCID% > "%HEALTHFILE%"
     echo Date: %CURRDATE% >> "%HEALTHFILE%"
-    echo Start Time: %CURRTIME% >> "%HEALTHFILE%"
+    echo Start Time: %STARTTIME% >> "%HEALTHFILE%"
     echo CPU Cores: %CORES% >> "%HEALTHFILE%"
     echo Load Threads: %LOAD% >> "%HEALTHFILE%"
     echo [OK] Health file created >> "%LOGFILE%"
@@ -115,14 +102,14 @@ for /L %%A in (1,1,%LOAD%) do (
 echo [OK] CPU load running >> "%LOGFILE%"
 
 :: ==================================================
-:: WARMUP COUNTDOWN (FIXED)
+:: WARMUP LOOP (SECONDS, RELIABLE)
 :: ==================================================
-set REMAIN=%WARMUP_MINUTES%
+set REMAIN=%WARMUP_SECONDS%
 color 0B
 echo [STEP] Entering warmup loop >> "%LOGFILE%"
 
 :COUNTDOWN
-echo [DEBUG] Remaining=!REMAIN! >> "%LOGFILE%"
+echo [DEBUG] RemainingSeconds=!REMAIN! >> "%LOGFILE%"
 if !REMAIN! LEQ 0 goto FINISH
 
 if "%WRITE_MODE%"=="1" if exist "%BASEDIR%\STOP.txt" (
@@ -131,17 +118,20 @@ if "%WRITE_MODE%"=="1" if exist "%BASEDIR%\STOP.txt" (
     goto CLEANUP
 )
 
-echo Remaining warm-up time: !REMAIN! minute(s)
-timeout /t 60 /nobreak >nul
+echo Remaining warm-up time: !REMAIN! second(s)
+
+:: Reliable 1-second delay
+ping 127.0.0.1 -n 2 >nul
+
 set /a REMAIN-=1
 goto COUNTDOWN
 
 :: ==================================================
-:: FINISH
+:: NORMAL FINISH
 :: ==================================================
 :FINISH
 color 07
-echo [STEP] Warmup complete >> "%LOGFILE%"
+echo [STEP] Warmup completed >> "%LOGFILE%"
 
 for /f %%A in ('wmic os get localdatetime ^| find "."') do set DTS=%%A
 set ENDTIME=%DTS:~8,2%:%DTS:~10,2%
@@ -177,11 +167,11 @@ if "%WRITE_MODE%"=="1" (
 :: CLEANUP
 :: ==================================================
 :CLEANUP
-echo [STEP] Cleaning CPU load >> "%LOGFILE%"
+echo [STEP] Stopping CPU load >> "%LOGFILE%"
 taskkill /F /IM cpu_load.cmd >nul 2>&1
 echo [OK] CPU load stopped >> "%LOGFILE%"
 
-echo [STEP] Initiating shutdown timer >> "%LOGFILE%"
+echo [STEP] Shutdown timer started >> "%LOGFILE%"
 shutdown /s /t %SHUTDOWN_WARNING_SECONDS% /c "Maintenance completed on %PCID%. Shutdown in 2 minutes. Use shutdown /a to cancel."
 
 echo ===== SCRIPT END %date% %time% ===== >> "%LOGFILE%"
