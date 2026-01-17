@@ -25,7 +25,7 @@ echo ===== SCRIPT START %date% %time% ===== >> "%LOGFILE%"
 echo [STEP] Checking admin rights >> "%LOGFILE%"
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Not admin >> "%LOGFILE%"
+    echo [ERROR] Not running as admin >> "%LOGFILE%"
     pause
     exit /b 1
 )
@@ -102,77 +102,4 @@ for /L %%A in (1,1,%LOAD%) do (
 echo [OK] CPU load running >> "%LOGFILE%"
 
 :: ==================================================
-:: WARMUP LOOP (SECONDS, RELIABLE)
-:: ==================================================
-set REMAIN=%WARMUP_SECONDS%
-color 0B
-echo [STEP] Entering warmup loop >> "%LOGFILE%"
-
-:COUNTDOWN
-echo [DEBUG] RemainingSeconds=!REMAIN! >> "%LOGFILE%"
-if !REMAIN! LEQ 0 goto FINISH
-
-if "%WRITE_MODE%"=="1" if exist "%BASEDIR%\STOP.txt" (
-    echo [STOP] STOP.txt detected >> "%LOGFILE%"
-    echo Run Status: ABORTED (STOP) >> "%HEALTHFILE%"
-    goto CLEANUP
-)
-
-echo Remaining warm-up time: !REMAIN! second(s)
-
-:: Reliable 1-second delay
-ping 127.0.0.1 -n 2 >nul
-
-set /a REMAIN-=1
-goto COUNTDOWN
-
-:: ==================================================
-:: NORMAL FINISH
-:: ==================================================
-:FINISH
-color 07
-echo [STEP] Warmup completed >> "%LOGFILE%"
-
-for /f %%A in ('wmic os get localdatetime ^| find "."') do set DTS=%%A
-set ENDTIME=%DTS:~8,2%:%DTS:~10,2%
-
-if "%WRITE_MODE%"=="1" (
-    echo End Time: %ENDTIME% >> "%HEALTHFILE%"
-    echo Run Status: COMPLETED >> "%HEALTHFILE%"
-)
-
-:: ==================================================
-:: MONTHLY REPORT
-:: ==================================================
-if "%WRITE_MODE%"=="1" (
-    echo [STEP] Updating monthly report >> "%LOGFILE%"
-    if not exist "%MONTHLYFILE%" (
-        echo PC ID: %PCID% > "%MONTHLYFILE%"
-        echo Month: %CURRDATE:~0,7% >> "%MONTHLYFILE%"
-        echo Total Runs: 0 >> "%MONTHLYFILE%"
-    )
-
-    for /f "tokens=3" %%A in ('find "Total Runs:" "%MONTHLYFILE%"') do set RUNS=%%A
-    set /a RUNS+=1
-
-    > "%MONTHLYFILE%" (
-        echo PC ID: %PCID%
-        echo Month: %CURRDATE:~0,7%
-        echo Total Runs: %RUNS%
-        echo Last Run: %CURRDATE% %ENDTIME%
-    )
-)
-
-:: ==================================================
-:: CLEANUP
-:: ==================================================
-:CLEANUP
-echo [STEP] Stopping CPU load >> "%LOGFILE%"
-taskkill /F /IM cpu_load.cmd >nul 2>&1
-echo [OK] CPU load stopped >> "%LOGFILE%"
-
-echo [STEP] Shutdown timer started >> "%LOGFILE%"
-shutdown /s /t %SHUTDOWN_WARNING_SECONDS% /c "Maintenance completed on %PCID%. Shutdown in 2 minutes. Use shutdown /a to cancel."
-
-echo ===== SCRIPT END %date% %time% ===== >> "%LOGFILE%"
-exit /b 0
+:: W
