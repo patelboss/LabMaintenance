@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title Lab Maintenance – Production (No Helper)
+title Lab Maintenance – Production (Stable Final)
 
 :: ==================================================
 :: BASE PATHS
@@ -15,7 +15,6 @@ set PIDFILE=%BASEDIR%\cpu_pids.txt
 if not exist "%BASEDIR%" mkdir "%BASEDIR%"
 if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%"
 if not exist "%MONTHLYDIR%" mkdir "%MONTHLYDIR%"
-
 if exist "%PIDFILE%" del "%PIDFILE%"
 
 echo.>>"%LOGFILE%"
@@ -27,7 +26,7 @@ echo ===== SCRIPT START %date% %time% =====>>"%LOGFILE%"
 echo [STEP] Checking admin rights>>"%LOGFILE%"
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Not admin>>"%LOGFILE%"
+    echo [ERROR] Not running as administrator>>"%LOGFILE%"
     pause
     exit /b 1
 )
@@ -36,8 +35,8 @@ echo [OK] Admin confirmed>>"%LOGFILE%"
 :: ==================================================
 :: CONFIGURATION (SECONDS)
 :: ==================================================
-set WARMUP_SECONDS=10
-set SHUTDOWN_WARNING_SECONDS=20
+set WARMUP_SECONDS=1800
+set SHUTDOWN_WARNING_SECONDS=120
 
 echo [CONFIG] Warmup=%WARMUP_SECONDS% sec Shutdown=%SHUTDOWN_WARNING_SECONDS% sec>>"%LOGFILE%"
 
@@ -52,7 +51,7 @@ set /p PCID=<"%PCIDFILE%"
 echo [INFO] PC ID=%PCID%>>"%LOGFILE%"
 
 :: ==================================================
-:: CPU LOAD CALCULATION (~50–60%)
+:: CPU LOAD CALCULATION (~50%)
 :: ==================================================
 set CORES=%NUMBER_OF_PROCESSORS%
 set /a LOAD=%CORES%/2
@@ -60,7 +59,7 @@ if %LOAD% LSS 1 set LOAD=1
 echo [INFO] CPU cores=%CORES% LoadWorkers=%LOAD%>>"%LOGFILE%"
 
 :: ==================================================
-:: START CPU LOAD (POWERSHELL – PID TRACKED)
+:: START CPU LOAD (PID-TRACKED, SAFE)
 :: ==================================================
 echo [STEP] Starting CPU load>>"%LOGFILE%"
 
@@ -73,7 +72,7 @@ for /L %%A in (1,1,%LOAD%) do (
 echo [OK] CPU load running>>"%LOGFILE%"
 
 :: ==================================================
-:: WARM-UP LOOP (SECONDS)
+:: WARM-UP LOOP (RELIABLE DELAY)
 :: ==================================================
 set REMAIN=%WARMUP_SECONDS%
 color 0B
@@ -86,7 +85,8 @@ echo [DEBUG] RemainingSeconds=!REMAIN!>>"%LOGFILE%"
 >>"%LOGFILE%" echo.
 echo Remaining warm-up time: !REMAIN! second(s)
 
-call :DELAY_1S
+powershell -NoProfile -Command "Start-Sleep -Seconds 1"
+
 set /a REMAIN-=1
 goto COUNTDOWN
 
@@ -99,7 +99,7 @@ echo [STEP] Warmup completed>>"%LOGFILE%"
 goto AFTER_WARMUP
 
 :: ==================================================
-:: AFTER WARM-UP
+:: AFTER WARM-UP (CLEANUP)
 :: ==================================================
 :AFTER_WARMUP
 echo [STEP] Stopping CPU load>>"%LOGFILE%"
@@ -118,10 +118,3 @@ shutdown /s /t %SHUTDOWN_WARNING_SECONDS% /c "Maintenance completed on %PCID%. S
 
 echo ===== SCRIPT END %date% %time% =====>>"%LOGFILE%"
 exit /b 0
-
-:: ==================================================
-:: RELIABLE 1-SECOND DELAY
-:: ==================================================
-:DELAY_1S
-ping 127.0.0.1 -n 2 >nul
-exit /b
