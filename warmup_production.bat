@@ -62,12 +62,12 @@ echo [INFO] CPU cores=%CORES% LoadWorkers=%LOAD%>>"%LOGFILE%"
 echo [STEP] Starting CPU load>>"%LOGFILE%"
 
 for /L %%A in (1,1,%LOAD%) do (
-    start "" powershell -NoProfile -WindowStyle Hidden ^
-    -Command "$host.UI.RawUI.WindowTitle='LAB_CPU_LOAD_%PCID%'; while($true){$x=1}"
+    powershell -NoProfile -Command ^
+    "$p = Start-Process powershell -ArgumentList '-NoProfile -Command while($true){$x=1}' -PassThru -WindowStyle Hidden; ^
+     Add-Content '%PIDFILE%' $p.Id"
 )
 
 echo [OK] CPU load running>>"%LOGFILE%"
-
 :: ==================================================
 :: WARM-UP LOOP (SECONDS)
 :: ==================================================
@@ -101,8 +101,12 @@ goto AFTER_WARMUP
 :AFTER_WARMUP
 echo [STEP] Stopping CPU load>>"%LOGFILE%"
 
-powershell -NoProfile -Command ^
-"Get-Process powershell | Where-Object {$_.MainWindowTitle -eq 'LAB_CPU_LOAD_%PCID%'} | Stop-Process -Force"
+if exist "%PIDFILE%" (
+    for /f %%P in ("%PIDFILE%") do (
+        powershell -NoProfile -Command "Stop-Process -Id %%P -Force -ErrorAction SilentlyContinue"
+    )
+    del "%PIDFILE%"
+)
 
 echo [OK] CPU load stopped>>"%LOGFILE%"
 
