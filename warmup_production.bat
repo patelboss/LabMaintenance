@@ -10,10 +10,13 @@ set LOGFILE=%BASEDIR%\log.txt
 set PCIDFILE=%BASEDIR%\pc_id.txt
 set HEALTHDIR=%BASEDIR%\Health
 set MONTHLYDIR=%HEALTHDIR%\Monthly
+set PIDFILE=%BASEDIR%\cpu_pids.txt
 
 if not exist "%BASEDIR%" mkdir "%BASEDIR%"
 if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%"
 if not exist "%MONTHLYDIR%" mkdir "%MONTHLYDIR%"
+
+if exist "%PIDFILE%" del "%PIDFILE%"
 
 echo.>>"%LOGFILE%"
 echo ===== SCRIPT START %date% %time% =====>>"%LOGFILE%"
@@ -33,8 +36,8 @@ echo [OK] Admin confirmed>>"%LOGFILE%"
 :: ==================================================
 :: CONFIGURATION (SECONDS)
 :: ==================================================
-set WARMUP_SECONDS=1800
-set SHUTDOWN_WARNING_SECONDS=120
+set WARMUP_SECONDS=10
+set SHUTDOWN_WARNING_SECONDS=20
 
 echo [CONFIG] Warmup=%WARMUP_SECONDS% sec Shutdown=%SHUTDOWN_WARNING_SECONDS% sec>>"%LOGFILE%"
 
@@ -57,17 +60,18 @@ if %LOAD% LSS 1 set LOAD=1
 echo [INFO] CPU cores=%CORES% LoadWorkers=%LOAD%>>"%LOGFILE%"
 
 :: ==================================================
-:: START CPU LOAD (POWERSHELL – NO HELPER)
+:: START CPU LOAD (POWERSHELL – PID TRACKED)
 :: ==================================================
 echo [STEP] Starting CPU load>>"%LOGFILE%"
 
 for /L %%A in (1,1,%LOAD%) do (
     powershell -NoProfile -Command ^
-    "$p = Start-Process powershell -ArgumentList '-NoProfile -Command while($true){$x=1}' -PassThru -WindowStyle Hidden; ^
+    "$p = Start-Process powershell -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile -Command while($true){Start-Sleep -Milliseconds 10}'; ^
      Add-Content '%PIDFILE%' $p.Id"
 )
 
 echo [OK] CPU load running>>"%LOGFILE%"
+
 :: ==================================================
 :: WARM-UP LOOP (SECONDS)
 :: ==================================================
@@ -92,7 +96,6 @@ goto COUNTDOWN
 :FINISH
 color 07
 echo [STEP] Warmup completed>>"%LOGFILE%"
-
 goto AFTER_WARMUP
 
 :: ==================================================
@@ -102,7 +105,7 @@ goto AFTER_WARMUP
 echo [STEP] Stopping CPU load>>"%LOGFILE%"
 
 if exist "%PIDFILE%" (
-    for /f %%P in ("%PIDFILE%") do (
+    for /f %%P in (%PIDFILE%) do (
         powershell -NoProfile -Command "Stop-Process -Id %%P -Force -ErrorAction SilentlyContinue"
     )
     del "%PIDFILE%"
