@@ -35,9 +35,9 @@ echo [OK] Admin confirmed>>"%LOGFILE%"
 :: ==================================================
 :: CONFIGURATION (SECONDS)
 :: ==================================================
-set WARMUP_SECONDS=1800
-set COOLDOWN_SECONDS=300
-set SHUTDOWN_WARNING_SECONDS=120
+set WARMUP_SECONDS=20
+set COOLDOWN_SECONDS=20
+set SHUTDOWN_WARNING_SECONDS=20
 
 echo [CONFIG] Warmup=%WARMUP_SECONDS% sec Cooldown=%COOLDOWN_SECONDS% sec Shutdown=%SHUTDOWN_WARNING_SECONDS% sec>>"%LOGFILE%"
 
