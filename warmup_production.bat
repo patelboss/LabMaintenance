@@ -65,8 +65,7 @@ echo [STEP] Starting CPU load>>"%LOGFILE%"
 
 for /L %%A in (1,1,%LOAD%) do (
     powershell -NoProfile -Command ^
-    "$p = Start-Process powershell -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile -Command while($true){Start-Sleep -Milliseconds 10}'; ^
-     Add-Content '%PIDFILE%' $p.Id"
+    "$p = Start-Process powershell -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile -Command while($true){Start-Sleep -Milliseconds 10}';Add-Content '%PIDFILE%' $p.Id"
 )
 
 echo [OK] CPU load running>>"%LOGFILE%"
