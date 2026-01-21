@@ -1,143 +1,107 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title Lab Maintenance – Production (Monthly Feature Test)
+title Lab Maintenance – Native Monthly Production
 
 :: ==================================================
-:: BASE PATHS
+:: PATHS & IDENTITY
 :: ==================================================
-set BASEDIR=C:\LabMaintenance
-set LOGFILE=%BASEDIR%\log.txt
-set PCIDFILE=%BASEDIR%\pc_id.txt
-set HEALTHDIR=%BASEDIR%\Health
-set MONTHLYDIR=%HEALTHDIR%\Monthly
-set PIDFILE=%BASEDIR%\cpu_pids.txt
+set "BASEDIR=%~dp0Maintenance_Data"
+set "LOGFILE=%BASEDIR%\log.txt"
+set "PCIDFILE=%BASEDIR%\pc_id.txt"
+set "MONTHLYDIR=%BASEDIR%\Health\Monthly"
+set "SIGNAL=%temp%\maint_stop.tmp"
 
-if not exist "%BASEDIR%" mkdir "%BASEDIR%"
-if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%"
 if not exist "%MONTHLYDIR%" mkdir "%MONTHLYDIR%"
-if exist "%PIDFILE%" del "%PIDFILE%"
 
-echo.>>"%LOGFILE%"
-echo ===== SCRIPT START %date% %time% =====>>"%LOGFILE%"
+:: Get PC ID (Ask once, remember forever)
+if not exist "%PCIDFILE%" (
+    set /p "USER_PCID=Enter ID for this PC: "
+    echo !USER_PCID! > "%PCIDFILE%"
+)
+set /p PCID=<"%PCIDFILE%"
+
+echo ===== START %date% %time% ===== >> "%LOGFILE%"
 
 :: ==================================================
 :: ADMIN CHECK
 :: ==================================================
-echo [STEP] Checking admin rights>>"%LOGFILE%"
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Not running as administrator>>"%LOGFILE%"
-    pause
-    exit /b 1
+    echo [ERROR] Please Run as Administrator.
+    pause & exit /b 1
 )
-echo [OK] Admin confirmed>>"%LOGFILE%"
 
 :: ==================================================
-:: CONFIGURATION (SECONDS)
+:: START NATIVE LOAD (Independent Workers)
 :: ==================================================
-set WARMUP_SECONDS=20
-set SHUTDOWN_WARNING_SECONDS=20
-
-echo [CONFIG] Warmup=%WARMUP_SECONDS% sec Shutdown=%SHUTDOWN_WARNING_SECONDS% sec>>"%LOGFILE%"
-
-:: ==================================================
-:: PC ID
-:: ==================================================
-if not exist "%PCIDFILE%" (
-    echo [ERROR] pc_id.txt missing>>"%LOGFILE%"
-    exit /b 1
-)
-set /p PCID=<"%PCIDFILE%"
-echo [INFO] PC ID=%PCID%>>"%LOGFILE%"
-
-:: ==================================================
-:: CPU LOAD CALCULATION (~50%)
-:: ==================================================
-set CORES=%NUMBER_OF_PROCESSORS%
-set /a LOAD=%CORES%/2
+echo [STEP] Starting CPU Load...
+echo go > "%SIGNAL%"
+set /a LOAD=%NUMBER_OF_PROCESSORS%/2
 if %LOAD% LSS 1 set LOAD=1
-echo [INFO] CPU cores=%CORES% LoadWorkers=%LOAD%>>"%LOGFILE%"
-
-:: ==================================================
-:: START CPU LOAD (PID-TRACKED)
-:: ==================================================
-echo [STEP] Starting CPU load>>"%LOGFILE%"
 
 for /L %%A in (1,1,%LOAD%) do (
-    powershell -NoProfile -Command ^
-    "$p = Start-Process powershell -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile -Command while($true){Start-Sleep -Milliseconds 10}'; ^
-     Add-Content '%PIDFILE%' $p.Id"
+    start "Maint_Worker" /min cmd /c "for /L %%i in () do (if not exist "%SIGNAL%" exit)"
 )
 
-echo [OK] CPU load running>>"%LOGFILE%"
-
 :: ==================================================
-:: WARM-UP LOOP
+:: WARM-UP LOOP (Visible UI)
 :: ==================================================
-set REMAIN=%WARMUP_SECONDS%
+set "REMAIN=20"
 color 0B
-echo [STEP] Entering warmup loop>>"%LOGFILE%"
-
 :COUNTDOWN
+cls
+echo ==================================================
+echo   MONTHLY MAINTENANCE: %PCID%
+echo   Remaining Warm-up: !REMAIN! seconds
+echo ==================================================
 if !REMAIN! LEQ 0 goto FINISH
-powershell -NoProfile -Command "Start-Sleep -Seconds 1"
+timeout /t 1 /nobreak >nul
 set /a REMAIN-=1
 goto COUNTDOWN
 
-:: ==================================================
-:: FINISH
-:: ==================================================
 :FINISH
 color 07
-echo [STEP] Warmup completed>>"%LOGFILE%"
+if exist "%SIGNAL%" del "%SIGNAL%"
 
 :: ==================================================
-:: STOP CPU LOAD
+:: DISK SPACE CHECK (Native WMIC)
 :: ==================================================
-echo [STEP] Stopping CPU load>>"%LOGFILE%"
+echo [STEP] Checking Disk Health...
+for /f "tokens=2 delims==" %%D in ('wmic logicaldisk where "DeviceID='C:'" get FreeSpace /value') do set "FREE_BYTES=%%D"
+:: Convert Bytes to GB (Roughly)
+set /a FREE_GB=%FREE_BYTES:~0,-6% / 1000 2>nul
 
-if exist "%PIDFILE%" (
-    for /f %%P in (%PIDFILE%) do (
-        powershell -NoProfile -Command "Stop-Process -Id %%P -Force -ErrorAction SilentlyContinue"
-    )
-    del "%PIDFILE%"
+:: ==================================================
+:: MONTHLY REPORT (Reliable Date & Counter)
+:: ==================================================
+echo [STEP] Updating Monthly Report...
+
+:: Get Year and Month safely (YYYY-MM)
+for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set "dt=%%I"
+set "STAMP=!dt:~0,4!-!dt:~4,2!"
+
+set "MONTHLYFILE=%MONTHLYDIR%\Monthly_%PCID%_%STAMP%.txt"
+
+set "RUNS=0"
+if exist "%MONTHLYFILE%" (
+    for /f "tokens=3" %%R in ('findstr /C:"Total Runs:" "%MONTHLYFILE%"') do set "RUNS=%%R"
 )
-
-echo [OK] CPU load stopped>>"%LOGFILE%"
-
-:: ==================================================
-:: MONTHLY REPORT (FEATURE ONLY)
-:: ==================================================
-echo [FEATURE: MONTHLY] Updating monthly report>>"%LOGFILE%"
-
-:: Extract Month as YYYY-MM (simple & stable)
-for /f "tokens=1-2 delims=/" %%A in ("%date%") do set MONTH=%%B-%%A
-
-set MONTHLYFILE=%MONTHLYDIR%\Monthly_%PCID%_%MONTH%.txt
-
-if not exist "%MONTHLYFILE%" (
-    echo PC ID: %PCID%>"%MONTHLYFILE%"
-    echo Month: %MONTH%>>"%MONTHLYFILE%"
-    echo Total Runs: 0>>"%MONTHLYFILE%"
-)
-
-for /f "tokens=3" %%R in ('find "Total Runs:" "%MONTHLYFILE%"') do set RUNS=%%R
 set /a RUNS+=1
 
 (
     echo PC ID: %PCID%
-    echo Month: %MONTH%
+    echo Month: %STAMP%
     echo Total Runs: %RUNS%
     echo Last Run: %date% %time%
+    echo Free Space (C:): %FREE_GB% GB
 )> "%MONTHLYFILE%"
 
-echo [FEATURE: MONTHLY] Monthly report updated>>"%LOGFILE%"
+echo [OK] Report updated. Free Space: %FREE_GB% GB. >> "%LOGFILE%"
 
 :: ==================================================
 :: SHUTDOWN
 :: ==================================================
-echo [STEP] Shutdown timer started>>"%LOGFILE%"
-shutdown /s /t %SHUTDOWN_WARNING_SECONDS% /c "Maintenance completed on %PCID%. Shutdown in 2 minutes. Use shutdown /a to cancel."
-
-echo ===== SCRIPT END %date% %time% =====>>"%LOGFILE%"
+echo [STEP] Maintenance complete. Shutting down in 60s...
+shutdown /s /t 60 /c "Monthly Maintenance on %PCID% complete."
+echo ===== END %date% %time% ===== >> "%LOGFILE%"
 exit /b 0
