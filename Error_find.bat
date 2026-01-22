@@ -11,123 +11,121 @@ set PCIDFILE=%BASEDIR%\pc_id.txt
 set HEALTHDIR=%BASEDIR%\Health
 set MONTHLYDIR=%HEALTHDIR%\Monthly
 set PIDFILE=%BASEDIR%\cpu_pids.txt
+set LOG_OK=1
+
+echo.
+echo =============================================
+echo   Lab Maintenance Script Starting
+echo =============================================
 
 :: ==================================================
-:: CREATE DIRECTORIES (WITH PERMISSION LOGS)
+:: CREATE DIRECTORIES
 :: ==================================================
 if not exist "%BASEDIR%" mkdir "%BASEDIR%" >nul 2>&1
 if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%" >nul 2>&1
 if not exist "%MONTHLYDIR%" mkdir "%MONTHLYDIR%" >nul 2>&1
 
 :: ==================================================
-:: ENSURE LOG FILE EXISTS
+:: LOG PERMISSION CHECK
 :: ==================================================
-echo. > "%LOGFILE%" 2>nul
-if not exist "%LOGFILE%" (
-    echo [ERROR] Cannot create log file. Permission denied.
-    pause
-    exit /b 1
+echo [INFO] Checking log file permissions...
+
+echo test > "%BASEDIR%\.__log_test.tmp" 2>nul
+if not exist "%BASEDIR%\.__log_test.tmp" (
+    echo [ERROR] Cannot write to %BASEDIR%
+    echo [ERROR] Logging will be screen-only
+    set LOG_OK=0
+) else (
+    del "%BASEDIR%\.__log_test.tmp"
+    echo [INFO] Log directory writable
 )
 
 :: ==================================================
-:: LOG FUNCTION
+:: INITIALIZE LOG FILE (IF POSSIBLE)
 :: ==================================================
-:LOG
-:: Usage: call :LOG LEVEL MESSAGE
-set "LEVEL=%~1"
-set "MESSAGE=%~2"
-echo [%LEVEL%] %MESSAGE%
-echo [%LEVEL%] %MESSAGE%>>"%LOGFILE%"
-exit /b
+if %LOG_OK%==1 (
+    >"%LOGFILE%" echo ===== SCRIPT START %date% %time% =====
+)
 
 :: ==================================================
-:: SCRIPT START
+:: LOG SUBROUTINE (SAFE)
 :: ==================================================
-call :LOG INFO "SCRIPT START %date% %time%"
+:LOG
+set "LEVEL=%~1"
+set "MSG=%~2"
+echo [%LEVEL%] %MSG%
+if %LOG_OK%==1 echo [%LEVEL%] %MSG%>>"%LOGFILE%"
+exit /b
 
 :: ==================================================
 :: ADMIN CHECK
 :: ==================================================
-call :LOG ACTION "Checking administrator privileges"
+call :LOG STEP "Checking administrator privileges"
 net session >nul 2>&1
 if %errorlevel% neq 0 (
     call :LOG ERROR "Administrator rights NOT present"
     pause
-    exit /b 1
+    goto HOLD
 )
-call :LOG INFO "Administrator rights confirmed"
+call :LOG OK "Administrator rights confirmed"
 
 :: ==================================================
 :: CONFIGURATION
 :: ==================================================
 set WARMUP_SECONDS=20
 set SHUTDOWN_WARNING_SECONDS=20
-call :LOG DEBUG "Config WARMUP_SECONDS=%WARMUP_SECONDS%"
-call :LOG DEBUG "Config SHUTDOWN_WARNING_SECONDS=%SHUTDOWN_WARNING_SECONDS%"
+
+call :LOG INFO "WARMUP_SECONDS=%WARMUP_SECONDS%"
+call :LOG INFO "SHUTDOWN_WARNING_SECONDS=%SHUTDOWN_WARNING_SECONDS%"
 
 :: ==================================================
-:: FILE PERMISSION CHECKS
+:: PC ID
 :: ==================================================
-call :LOG ACTION "Checking write permission in BASEDIR"
-echo test > "%BASEDIR%\.__perm_test.tmp" 2>nul
-if exist "%BASEDIR%\.__perm_test.tmp" (
-    call :LOG PERM "Write permission: OK"
-    del "%BASEDIR%\.__perm_test.tmp"
-) else (
-    call :LOG ERROR "Write permission: FAILED"
-    pause
-    exit /b 1
-)
-
-:: ==================================================
-:: PC ID READ
-:: ==================================================
-call :LOG ACTION "Reading PC ID file"
+call :LOG STEP "Reading PC ID"
 if not exist "%PCIDFILE%" (
     call :LOG ERROR "pc_id.txt not found"
     pause
-    exit /b 1
+    goto HOLD
 )
-
 set /p PCID=<"%PCIDFILE%"
-call :LOG INFO "PC ID read successfully: %PCID%"
+call :LOG INFO "PC ID=%PCID%"
 
 :: ==================================================
-:: CPU LOAD CALCULATION
+:: CPU LOAD
 :: ==================================================
 set CORES=%NUMBER_OF_PROCESSORS%
-call :LOG DEBUG "Detected CPU cores=%CORES%"
-
 set /a LOAD=%CORES%/2
 if %LOAD% LSS 1 set LOAD=1
-call :LOG INFO "CPU load workers=%LOAD%"
+
+call :LOG INFO "CPU cores=%CORES%"
+call :LOG INFO "Load workers=%LOAD%"
 
 :: ==================================================
 :: START CPU LOAD
 :: ==================================================
-call :LOG ACTION "Starting CPU load processes"
 if exist "%PIDFILE%" del "%PIDFILE%"
+call :LOG STEP "Starting CPU load"
 
 for /L %%A in (1,1,%LOAD%) do (
     call :LOG DEBUG "Starting worker %%A"
-    powershell -NoProfile -Command "$p=Start-Process powershell -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile -Command while($true){Start-Sleep -Milliseconds 10}';Add-Content '%PIDFILE%' $p.Id"
+    powershell -NoProfile -Command ^
+    "$p=Start-Process powershell -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile -Command while($true){Start-Sleep -Milliseconds 10}';Add-Content '%PIDFILE%' $p.Id"
 )
 
-call :LOG INFO "CPU load started"
+call :LOG OK "CPU load started"
 
 :: ==================================================
 :: WARM-UP LOOP
 :: ==================================================
-call :LOG ACTION "Entering warm-up loop"
 set REMAIN=%WARMUP_SECONDS%
 color 0B
+call :LOG STEP "Entering warm-up"
 
 :COUNTDOWN
-call :LOG DEBUG "Warm-up remaining=%REMAIN% seconds"
-echo Remaining warm-up time: %REMAIN% second(s)
-
+echo Remaining warm-up: %REMAIN% sec
+call :LOG DEBUG "Remaining=%REMAIN%"
 if %REMAIN% LEQ 0 goto FINISH
-powershell -NoProfile -Command "Start-Sleep -Seconds 1"
+timeout /t 1 /nobreak >nul
 set /a REMAIN-=1
 goto COUNTDOWN
 
@@ -136,12 +134,12 @@ goto COUNTDOWN
 :: ==================================================
 :FINISH
 color 07
-call :LOG ACTION "Warm-up completed"
+call :LOG STEP "Warm-up completed"
 
 :: ==================================================
 :: STOP CPU LOAD
 :: ==================================================
-call :LOG ACTION "Stopping CPU load"
+call :LOG STEP "Stopping CPU load"
 
 if exist "%PIDFILE%" (
     for /f %%P in (%PIDFILE%) do (
@@ -151,13 +149,23 @@ if exist "%PIDFILE%" (
     del "%PIDFILE%"
 )
 
-call :LOG INFO "CPU load stopped"
+call :LOG OK "CPU load stopped"
 
 :: ==================================================
 :: SHUTDOWN
 :: ==================================================
-call :LOG ACTION "Initiating shutdown sequence"
+call :LOG STEP "Shutdown scheduled"
 call :LOG INFO "SCRIPT END %date% %time%"
 
-shutdown /s /t %SHUTDOWN_WARNING_SECONDS% /c "Maintenance completed on %PCID%. Shutdown in 2 minutes. Use shutdown /a to cancel."
-exit /b 0
+shutdown /s /t %SHUTDOWN_WARNING_SECONDS% /c "Maintenance completed on %PCID%. Use shutdown /a to cancel."
+
+:: ==================================================
+:: HOLD WINDOW (NO AUTO-CLOSE)
+:: ==================================================
+:HOLD
+echo.
+echo =============================================
+echo   Script is active. Waiting for shutdown.
+echo =============================================
+pause >nul
+goto HOLD
