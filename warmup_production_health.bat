@@ -1,122 +1,131 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title Lab Maintenance – Health Feature (Stable)
+title Lab Maintenance – Cooldown (Fixed & Stable)
 
 :: ==================================================
-:: PATHS & IDENTITY
+:: PATHS (SELF-CONTAINED, SAFE)
 :: ==================================================
 set "BASEDIR=%~dp0Maintenance_Data"
-set "HEALTHDIR=%BASEDIR%\Health"
+set "LOGFILE=%BASEDIR%\log.txt"
 set "PCIDFILE=%BASEDIR%\pc_id.txt"
-set "SIGNAL=%temp%\maint_stop.tmp"
+set "PIDFILE=%BASEDIR%\cpu_pids.txt"
 
-if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%" /p
+if not exist "%BASEDIR%" mkdir "%BASEDIR%" >nul 2>&1
 
-:: Get/Set PC ID
-if not exist "%PCIDFILE%" (
-    set /p "USER_PCID=Enter ID for this PC: "
-    echo !USER_PCID! > "%PCIDFILE%"
-)
-set /p PCID=<"%PCIDFILE%"
+echo.
+echo =============================================
+echo   Lab Maintenance Script Starting
+echo =============================================
+
+:: ==================================================
+:: LOG FILE INIT (INLINE, SAFE)
+:: ==================================================
+echo ===== SCRIPT START %date% %time% ===== >> "%LOGFILE%"
+echo [INFO] Script launched
 
 :: ==================================================
 :: ADMIN CHECK
 :: ==================================================
+echo [STEP] Checking administrator rights
+echo [STEP] Checking administrator rights >> "%LOGFILE%"
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Administrative rights required.
-    pause & exit /b 1
+    echo [ERROR] Administrator rights required
+    echo [ERROR] Administrator rights required >> "%LOGFILE%"
+    pause
+    exit /b 1
 )
+echo [OK] Admin confirmed
+echo [OK] Admin confirmed >> "%LOGFILE%"
 
 :: ==================================================
-:: PRE-RUN: SYSTEM DATA COLLECTION
+:: CONFIGURATION
 :: ==================================================
-:: Safe Date for Filename (YYYY-MM-DD)
-for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value 2^>nul') do set "dt=%%I"
-set "F_DATE=!dt:~0,4!-!dt:~4,2!-!dt:~6,2!"
-set "START_TIME=%time%"
+set WARMUP_SECONDS=20
+set COOLDOWN_SECONDS=20
+set SHUTDOWN_WARNING_SECONDS=20
 
-:: Create Health File with Timestamped Name
-set "HEALTHFILE=%HEALTHDIR%\Health_%PCID%_%F_DATE%_!time:~0,2!!time:~3,2!.txt"
-set "HEALTHFILE=%HEALTHFILE: =0%"
+echo [CONFIG] Warmup=%WARMUP_SECONDS% Cooldown=%COOLDOWN_SECONDS% Shutdown=%SHUTDOWN_WARNING_SECONDS%
+echo [CONFIG] Warmup=%WARMUP_SECONDS% Cooldown=%COOLDOWN_SECONDS% Shutdown=%SHUTDOWN_WARNING_SECONDS% >> "%LOGFILE%"
 
-echo [STEP] Gathering Pre-Maintenance Vitals...
-
-:: 1. Get RAM
-set "MEM=Unknown"
-for /f "tokens=2 delims==" %%M in ('wmic OS get FreePhysicalMemory /value 2^>nul') do (
-    set /a "MEM=%%M / 1024"
+:: ==================================================
+:: PC ID
+:: ==================================================
+if not exist "%PCIDFILE%" (
+    echo [SETUP] Enter PC ID:
+    set /p PCID=
+    echo %PCID% > "%PCIDFILE%"
 )
-
-:: 2. Get Temperature (Safe-Pass Logic)
-set "TEMP=Not Supported"
-for /f "tokens=2 delims==" %%T in ('wmic /namespace:\\root\wmi PATH MSAcpi_ThermalZoneTemperature get CurrentTemperature /value 2^>nul') do (
-    set /a "temp_raw=%%T"
-    :: Convert Kelvin to Celsius: (K / 10) - 273
-    set /a "TEMP=(!temp_raw! / 10) - 273"
-)
-
-:: 3. Get Uptime
-set "BOOT_RAW=Unknown"
-for /f "tokens=2 delims==" %%B in ('wmic os get lastbootuptime /value 2^>nul') do set "BOOT_RAW=%%B"
-
-:: Write Start Report
-(
-    echo PC ID: %PCID%
-    echo Date: %F_DATE%
-    echo Start Time: %START_TIME%
-    echo System Booted: %BOOT_RAW:~0,4%-%BOOT_RAW:~4,2%-%BOOT_RAW:~6,2% %BOOT_RAW:~8,2%:%BOOT_RAW:~10,2%
-    echo Start RAM Available: %MEM% MB
-    echo CPU Temperature: %TEMP% C
-    echo ---
-)> "%HEALTHFILE%"
+set /p PCID=<"%PCIDFILE%"
+echo [INFO] PC ID=%PCID%
+echo [INFO] PC ID=%PCID% >> "%LOGFILE%"
 
 :: ==================================================
-:: EXECUTION: NATIVE CPU LOAD
+:: CPU LOAD CALCULATION
 :: ==================================================
-echo [STEP] Starting Stress Test...
-echo go > "%SIGNAL%"
 set /a LOAD=%NUMBER_OF_PROCESSORS%/2
 if %LOAD% LSS 1 set LOAD=1
 
+echo [INFO] CPU Load Workers=%LOAD%
+echo [INFO] CPU Load Workers=%LOAD% >> "%LOGFILE%"
+
+:: ==================================================
+:: START CPU LOAD (NATIVE STYLE)
+:: ==================================================
+if exist "%PIDFILE%" del "%PIDFILE%"
+
+echo [STEP] Starting CPU load
+echo [STEP] Starting CPU load >> "%LOGFILE%"
+
 for /L %%A in (1,1,%LOAD%) do (
-    start "Maint_Worker" /min cmd /c "for /L %%i in () do (if not exist "%SIGNAL%" exit)"
+    start "Maint_Worker" /min cmd /c "for /L %%i in () do rem"
 )
 
-set "REMAIN=20"
+echo [OK] CPU load running
+echo [OK] CPU load running >> "%LOGFILE%"
+
+:: ==================================================
+:: WARM-UP LOOP (VISIBLE)
+:: ==================================================
+set REMAIN=%WARMUP_SECONDS%
 color 0B
-:COUNTDOWN
+
+:WARMUP
 cls
-echo ==================================================
-echo   HEALTH TEST IN PROGRESS: %PCID%
-echo   Current Temp: %TEMP% C
-echo   Remaining: !REMAIN! seconds
-echo ==================================================
-if !REMAIN! LEQ 0 goto FINISH
+echo =============================================
+echo   WARM-UP IN PROGRESS : %PCID%
+echo   Remaining Time     : %REMAIN% sec
+echo =============================================
+
+if %REMAIN% LEQ 0 goto END_WARMUP
 timeout /t 1 /nobreak >nul
 set /a REMAIN-=1
-goto COUNTDOWN
+goto WARMUP
 
-:FINISH
+:END_WARMUP
 color 07
-if exist "%SIGNAL%" del "%SIGNAL%"
-set "END_TIME=%time%"
+echo [STEP] Warm-up completed
+echo [STEP] Warm-up completed >> "%LOGFILE%"
 
 :: ==================================================
-:: POST-RUN: FINAL CHECKS
+:: COOL-DOWN
 :: ==================================================
-echo [STEP] Finalizing Report...
+echo [STEP] Cool-down started (%COOLDOWN_SECONDS% sec)
+echo [STEP] Cool-down started (%COOLDOWN_SECONDS% sec) >> "%LOGFILE%"
+timeout /t %COOLDOWN_SECONDS% /nobreak >nul
+echo [STEP] Cool-down completed
+echo [STEP] Cool-down completed >> "%LOGFILE%"
 
-:: Disk Check
-for /f "tokens=2 delims==" %%D in ('wmic logicaldisk where "DeviceID='C:'" get FreeSpace /value 2^>nul') do set "FREE_BYTES=%%D"
-set /a FREE_GB=%FREE_BYTES:~0,-6% / 1000 2>nul
+:: ==================================================
+:: SHUTDOWN
+:: ==================================================
+echo [STEP] Shutdown scheduled
+echo [STEP] Shutdown scheduled >> "%LOGFILE%"
+echo ===== SCRIPT END %date% %time% ===== >> "%LOGFILE%"
 
-(
-    echo End Time: %END_TIME%
-    echo Final Free Disk: %FREE_GB% GB
-    echo Status: SUCCESS
-)>>"%HEALTHFILE%"
+shutdown /s /t %SHUTDOWN_WARNING_SECONDS% /c "Maintenance completed on %PCID%. Use shutdown /a to cancel."
 
-echo [COMPLETE] Report saved to Health folder.
-shutdown /s /t 60 /c "Health maintenance complete."
-exit /b 0
+echo.
+echo System will shut down shortly.
+echo This window will remain open.
+pause >nul
