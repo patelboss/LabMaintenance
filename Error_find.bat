@@ -131,6 +131,14 @@ color 07
 echo [OK] Warm-up phase completed
 if "%LOGMODE%"=="FILE" echo [OK] Warm-up phase completed >> "%LOGFILE%"
 
+echo [STEP] Stopping CPU load
+if "%LOGMODE%"=="FILE" echo [STEP] Stopping CPU load >> "%LOGFILE%"
+
+taskkill /F /FI "WINDOWTITLE eq MAINT_CPU_LOAD*" /IM cmd.exe >nul 2>&1
+
+echo [OK] CPU load stopped
+if "%LOGMODE%"=="FILE" echo [OK] CPU load stopped >> "%LOGFILE%"
+
 :: ==================================================
 :: SHUTDOWN SEQUENCE
 :: ==================================================
