@@ -1,98 +1,56 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title Lab Maintenance – Production (Cooldown + Full Logs + Permission Check)
+title Lab Maintenance – Stable Execution Mode
+
+echo ==================================================
+echo   LAB MAINTENANCE SCRIPT INITIALIZING
+echo ==================================================
+echo If you can read this, the script has started.
+echo.
 
 :: ==================================================
-:: BASE PATHS
+:: BASE LOCATION (SELF-CONTAINED)
 :: ==================================================
-set BASEDIR=C:\LabMaintenance
-set LOGFILE=%BASEDIR%\log.txt
-set PCIDFILE=%BASEDIR%\pc_id.txt
-set PIDFILE=%BASEDIR%\cpu_pids.txt
+set "BASEDIR=%~dp0Maintenance_Data"
+set "LOGFILE=%BASEDIR%\log.txt"
+set "PCIDFILE=%BASEDIR%\pc_id.txt"
+set "PIDFILE=%BASEDIR%\cpu_pids.txt"
+
+if not exist "%BASEDIR%" mkdir "%BASEDIR%" >nul 2>&1
 
 :: ==================================================
-:: CREATE BASE DIRECTORY
+:: LOG FILE TEST
 :: ==================================================
-if not exist "%BASEDIR%" (
-    mkdir "%BASEDIR%" >nul 2>&1
-)
+echo [INFO] Checking log write capability...
+echo Log test > "%BASEDIR%\.__log_test.tmp" 2>nul
 
-:: ==================================================
-:: PERMISSION CHECK (WRITE TEST)
-:: ==================================================
-set LOG_OK=1
-set TESTFILE=%BASEDIR%\.__perm_test.tmp
-
-echo [INFO] Checking write permission for %BASEDIR%
-
-echo test > "%TESTFILE%" 2>nul
-if not exist "%TESTFILE%" (
-    echo [ERROR] WRITE PERMISSION DENIED for %BASEDIR%
-    echo [ERROR] Cannot create log file. Script will stop.
-    set LOG_OK=0
+if exist "%BASEDIR%\.__log_test.tmp" (
+    del "%BASEDIR%\.__log_test.tmp"
+    echo [INFO] Log directory is writable.
+    type nul >> "%LOGFILE%"
+    >>"%LOGFILE%" echo ===== SCRIPT START %date% %time% =====
+    set LOGMODE=FILE
 ) else (
-    del "%TESTFILE%"
-    echo [INFO] Write permission OK
+    echo [WARN] Cannot write log file. Running in screen-only mode.
+    set LOGMODE=SCREEN
 )
-
-:: ==================================================
-:: ENSURE LOG FILE EXISTS
-:: ==================================================
-if %LOG_OK%==1 (
-    if not exist "%LOGFILE%" (
-        echo.>"%LOGFILE%" 2>nul
-    )
-    if not exist "%LOGFILE%" (
-        echo [ERROR] Failed to create log file: %LOGFILE%
-        echo [ERROR] Script will not continue without logging
-        set LOG_OK=0
-    )
-)
-
-:: ==================================================
-:: LOG FUNCTION (SCREEN + FILE IF POSSIBLE)
-:: ==================================================
-:LOG
-set "LEVEL=%~1"
-set "MSG=%~2"
-echo [%LEVEL%] %MSG%
-if %LOG_OK%==1 (
-    echo [%LEVEL%] %MSG%>>"%LOGFILE%"
-)
-exit /b
-
-:: ==================================================
-:: HARD STOP IF LOGGING FAILED
-:: ==================================================
-if %LOG_OK%==0 (
-    echo.
-    echo =============================================
-    echo  CRITICAL ERROR: LOGGING NOT AVAILABLE
-    echo  Check folder permissions:
-    echo  %BASEDIR%
-    echo =============================================
-    pause
-    goto :EOF
-)
-
-:: ==================================================
-:: SAFE DATE/TIME
-:: ==================================================
-for /f "delims=" %%T in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd_HH:mm:ss"') do set NOW=%%T
-
-call :LOG INFO "SCRIPT START at %NOW%"
 
 :: ==================================================
 :: ADMIN CHECK
 :: ==================================================
-call :LOG ACTION "Checking administrator rights"
+echo [STEP] Verifying administrator rights
+if "%LOGMODE%"=="FILE" >>"%LOGFILE%" echo [STEP] Verifying administrator rights
+
 net session >nul 2>&1
-if %errorlevel% neq 0 (
-    call :LOG ERROR "Administrator rights NOT present"
+if errorlevel 1 (
+    echo [ERROR] Administrator rights are required.
+    if "%LOGMODE%"=="FILE" >>"%LOGFILE%" echo [ERROR] Administrator rights missing
     pause
     goto HOLD
 )
-call :LOG INFO "Administrator rights confirmed"
+
+echo [OK] Administrator rights confirmed
+if "%LOGMODE%"=="FILE" >>"%LOGFILE%" echo [OK] Administrator rights confirmed
 
 :: ==================================================
 :: CONFIGURATION
@@ -101,102 +59,138 @@ set WARMUP_SECONDS=20
 set COOLDOWN_SECONDS=20
 set SHUTDOWN_WARNING_SECONDS=20
 
-call :LOG INFO "Configuration loaded"
-call :LOG DEBUG "WARMUP_SECONDS=%WARMUP_SECONDS%"
-call :LOG DEBUG "COOLDOWN_SECONDS=%COOLDOWN_SECONDS%"
-call :LOG DEBUG "SHUTDOWN_WARNING_SECONDS=%SHUTDOWN_WARNING_SECONDS%"
+echo [INFO] Warm-up duration  : %WARMUP_SECONDS% seconds
+echo [INFO] Cooldown duration : %COOLDOWN_SECONDS% seconds
+echo [INFO] Shutdown delay    : %SHUTDOWN_WARNING_SECONDS% seconds
+if "%LOGMODE%"=="FILE" (
+    >>"%LOGFILE%" echo [INFO] Warm-up duration  : %WARMUP_SECONDS% seconds
+    >>"%LOGFILE%" echo [INFO] Cooldown duration : %COOLDOWN_SECONDS% seconds
+    >>"%LOGFILE%" echo [INFO] Shutdown delay    : %SHUTDOWN_WARNING_SECONDS% seconds
+)
 
 :: ==================================================
-:: PC ID
+:: PC IDENTIFICATION
 :: ==================================================
-call :LOG ACTION "Reading PC ID"
 if not exist "%PCIDFILE%" (
-    call :LOG ERROR "pc_id.txt missing"
-    pause
-    goto HOLD
+    echo [SETUP] No PC ID found. Please enter an ID:
+    set /p PCID=
+    echo %PCID% > "%PCIDFILE%"
 )
+
 set /p PCID=<"%PCIDFILE%"
-call :LOG INFO "PC ID=%PCID%"
+echo [INFO] PC ID in use: %PCID%
+if "%LOGMODE%"=="FILE" >>"%LOGFILE%" echo [INFO] PC ID in use: %PCID%
 
 :: ==================================================
 :: CPU LOAD CALCULATION
 :: ==================================================
-set CORES=%NUMBER_OF_PROCESSORS%
-set /a LOAD=%CORES%/2
+set /a LOAD=%NUMBER_OF_PROCESSORS%/2
 if %LOAD% LSS 1 set LOAD=1
 
-call :LOG INFO "CPU cores detected=%CORES%"
-call :LOG INFO "CPU load workers=%LOAD%"
+echo [INFO] CPU cores detected : %NUMBER_OF_PROCESSORS%
+echo [INFO] Load workers used  : %LOAD%
+if "%LOGMODE%"=="FILE" (
+    >>"%LOGFILE%" echo [INFO] CPU cores detected : %NUMBER_OF_PROCESSORS%
+    >>"%LOGFILE%" echo [INFO] Load workers used  : %LOAD%
+)
 
 :: ==================================================
 :: START CPU LOAD
 :: ==================================================
 if exist "%PIDFILE%" del "%PIDFILE%"
-call :LOG ACTION "Starting CPU load"
+
+echo [STEP] Starting CPU warm-up load
+if "%LOGMODE%"=="FILE" >>"%LOGFILE%" echo [STEP] Starting CPU warm-up load
 
 for /L %%A in (1,1,%LOAD%) do (
-    call :LOG DEBUG "Starting load worker %%A"
-    powershell -NoProfile -Command ^
-    "$p=Start-Process powershell -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile -Command while($true){Start-Sleep -Milliseconds 10}'; Add-Content '%PIDFILE%' $p.Id"
+    start "MAINT_CPU_LOAD" /min cmd /c "for /L %%i in () do rem"
 )
 
-call :LOG INFO "CPU load running"
+echo [OK] CPU load is now active
+if "%LOGMODE%"=="FILE" >>"%LOGFILE%" echo [OK] CPU load is now active
 
 :: ==================================================
-:: WARM-UP
+:: WARM-UP TIMER
 :: ==================================================
 set REMAIN=%WARMUP_SECONDS%
 color 0B
-call :LOG ACTION "Entering warm-up phase"
 
-:COUNTDOWN
-if %REMAIN% LEQ 0 goto FINISH
-echo Warm-up remaining: %REMAIN% second(s)
-powershell -NoProfile -Command "Start-Sleep -Seconds 1"
+:WARMUP_LOOP
+cls
+echo ==================================================
+echo   SYSTEM WARM-UP IN PROGRESS
+echo   PC ID      : %PCID%
+echo   Time Left  : %REMAIN% seconds
+echo ==================================================
+
+if "%LOGMODE%"=="FILE" >>"%LOGFILE%" echo [DEBUG] Warm-up remaining: %REMAIN% sec
+
+if %REMAIN% LEQ 0 goto WARMUP_DONE
+timeout /t 1 /nobreak >nul
 set /a REMAIN-=1
-goto COUNTDOWN
+goto WARMUP_LOOP
 
-:: ==================================================
-:: FINISH WARM-UP
-:: ==================================================
-:FINISH
+:WARMUP_DONE
 color 07
-call :LOG ACTION "Warm-up completed"
+echo [OK] Warm-up phase completed
+if "%LOGMODE%"=="FILE" >>"%LOGFILE%" echo [OK] Warm-up phase completed
 
 :: ==================================================
 :: STOP CPU LOAD
 :: ==================================================
-call :LOG ACTION "Stopping CPU load"
+echo [STEP] Stopping CPU load
+if "%LOGMODE%"=="FILE" >>"%LOGFILE%" echo [STEP] Stopping CPU load
 
-if exist "%PIDFILE%" (
-    for /f %%P in (%PIDFILE%) do (
-        call :LOG DEBUG "Stopping PID %%P"
-        powershell -NoProfile -Command "Stop-Process -Id %%P -Force -ErrorAction SilentlyContinue"
-    )
-    del "%PIDFILE%"
+taskkill /F /FI "WINDOWTITLE eq MAINT_CPU_LOAD*" /IM cmd.exe >nul 2>&1
+
+echo [OK] CPU load stopped
+if "%LOGMODE%"=="FILE" >>"%LOGFILE%" echo [OK] CPU load stopped
+
+:: ==================================================
+:: COOLDOWN TIMER (NEW)
+:: ==================================================
+set CD_REMAIN=%COOLDOWN_SECONDS%
+color 0A
+
+:COOLDOWN_LOOP
+cls
+echo ==================================================
+echo   SYSTEM COOLDOWN IN PROGRESS
+echo   PC ID      : %PCID%
+echo   Time Left  : %CD_REMAIN% seconds
+echo ==================================================
+
+if "%LOGMODE%"=="FILE" >>"%LOGFILE%" echo [DEBUG] Cooldown remaining: %CD_REMAIN% sec
+
+if %CD_REMAIN% LEQ 0 goto COOLDOWN_DONE
+timeout /t 1 /nobreak >nul
+set /a CD_REMAIN-=1
+goto COOLDOWN_LOOP
+
+:COOLDOWN_DONE
+color 07
+echo [OK] Cooldown completed
+if "%LOGMODE%"=="FILE" >>"%LOGFILE%" echo [OK] Cooldown completed
+
+:: ==================================================
+:: SHUTDOWN SEQUENCE
+:: ==================================================
+echo [STEP] Scheduling system shutdown
+if "%LOGMODE%"=="FILE" (
+    >>"%LOGFILE%" echo [STEP] Scheduling system shutdown
+    >>"%LOGFILE%" echo ===== SCRIPT END %date% %time% =====
 )
 
-call :LOG INFO "CPU load stopped"
+shutdown /s /t %SHUTDOWN_WARNING_SECONDS% /c "Maintenance completed on %PCID%. Use shutdown /a to cancel."
 
 :: ==================================================
-:: COOL-DOWN
+:: HOLD WINDOW OPEN
 :: ==================================================
-call :LOG ACTION "Cool-down started (%COOLDOWN_SECONDS% seconds)"
-powershell -NoProfile -Command "Start-Sleep -Seconds %COOLDOWN_SECONDS%"
-call :LOG ACTION "Cool-down completed"
-
-:: ==================================================
-:: SHUTDOWN
-:: ==================================================
-call :LOG ACTION "Shutdown timer started"
-call :LOG INFO "SCRIPT END – waiting for shutdown"
-
-shutdown /s /t %SHUTDOWN_WARNING_SECONDS% /c "Maintenance completed on %PCID%. Shutdown in 2 minutes. Use shutdown /a to cancel."
-
 :HOLD
 echo.
-echo =============================================
-echo  Script is active. Waiting for shutdown...
-echo =============================================
+echo ==================================================
+echo   Script is still running.
+echo   System will shut down automatically.
+echo ==================================================
 pause >nul
 goto HOLD
