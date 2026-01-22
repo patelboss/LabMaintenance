@@ -14,42 +14,33 @@ echo.
 set "BASEDIR=%~dp0Maintenance_Data"
 set "LOGFILE=%BASEDIR%\log.txt"
 set "PCIDFILE=%BASEDIR%\pc_id.txt"
-set "PIDFILE=%BASEDIR%\cpu_pids.txt"
 set "HEALTHDIR=%BASEDIR%\Health"
 
 if not exist "%BASEDIR%" mkdir "%BASEDIR%" >nul 2>&1
 if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%" >nul 2>&1
 
 :: ==================================================
-:: LOG FILE INIT
+:: LOG INIT (UNCONDITIONAL)
 :: ==================================================
-echo Log test > "%BASEDIR%\.__log_test.tmp" 2>nul
-if exist "%BASEDIR%\.__log_test.tmp" (
-    del "%BASEDIR%\.__log_test.tmp"
-    type nul >> "%LOGFILE%"
-    >>"%LOGFILE%" echo ===== SCRIPT START %date% %time% =====
-    set LOGMODE=FILE
-) else (
-    echo [WARN] Cannot write log file. Screen-only logging.
-    set LOGMODE=SCREEN
-)
+type nul >> "%LOGFILE%" 2>nul
+>>"%LOGFILE%" echo ===== SCRIPT START %date% %time% =====
 
 :: ==================================================
 :: ADMIN CHECK
 :: ==================================================
 echo [STEP] Verifying administrator rights
-if "%LOGMODE%"=="FILE" >>"%LOGFILE%" echo [STEP] Verifying administrator rights
+>>"%LOGFILE%" echo [STEP] Verifying administrator rights
 
 net session >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Administrator rights required
-    if "%LOGMODE%"=="FILE" >>"%LOGFILE%" echo [ERROR] Administrator rights required
+    >>"%LOGFILE%" echo [ERROR] Administrator rights required
     pause
     goto HOLD
 )
 
 echo [OK] Administrator rights confirmed
-if "%LOGMODE%"=="FILE" >>"%LOGFILE%" echo [OK] Administrator rights confirmed
+>>"%LOGFILE%" echo [OK] Administrator rights confirmed
 
 :: ==================================================
 :: CONFIGURATION
@@ -68,44 +59,44 @@ if not exist "%PCIDFILE%" (
 )
 set /p PCID=<"%PCIDFILE%"
 
+echo [INFO] PC ID: %PCID%
+>>"%LOGFILE%" echo [INFO] PC ID: %PCID%
+
 :: ==================================================
-:: HEALTH SUMMARY (SAFE & NON-BLOCKING)
+:: HEALTH SUMMARY (WMIC SAFE ZONE)
 :: ==================================================
 echo [STEP] Collecting system health summary
->>"%LOGFILE%" echo [STEP] Collecting system health summary 2>nul
+>>"%LOGFILE%" echo [STEP] Collecting system health summary
+
+REM ---- Disable delayed expansion ONLY for WMIC ----
+setlocal DisableDelayedExpansion
 
 :: Safe date/time
-for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value 2^>nul') do set "DT=%%I"
-set "H_DATE=%DT:~0,4%-%DT:~4,2%-%DT:~6,2%"
-set "H_TIME=%DT:~8,2%%DT:~10,2%"
+for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value 2^>nul') do set DT=%%I
+set H_DATE=%DT:~0,4%-%DT:~4,2%-%DT:~6,2%
+set H_TIME=%DT:~8,2%%DT:~10,2%
 
-set "HEALTHFILE=%HEALTHDIR%\Health_%PCID%_%H_DATE%_%H_TIME%.txt"
+set HEALTHFILE=%HEALTHDIR%\Health_%PCID%_%H_DATE%_%H_TIME%.txt
 
 :: Last boot time
-set "BOOT=Unknown"
-for /f "tokens=2 delims==" %%B in ('wmic os get lastbootuptime /value 2^>nul') do set "BOOT=%%B"
+set BOOT=Unknown
+for /f "tokens=2 delims==" %%B in ('wmic os get lastbootuptime /value 2^>nul') do set BOOT=%%B
 
 :: Available RAM (MB)
-set "RAM=Unknown"
+set RAM=Unknown
 for /f "tokens=2 delims==" %%R in ('wmic OS get FreePhysicalMemory /value 2^>nul') do (
     set /a RAM=%%R / 1024
 )
 
-:: Free disk space on C: (GB) — SAFE METHOD
-set "DISK=Unknown"
-for /f "tokens=1,2 delims==" %%A in ('wmic logicaldisk get DeviceID^,FreeSpace /value 2^>nul') do (
-    if "%%A"=="FreeSpace" set "FS=%%B"
-    if "%%A"=="DeviceID" if "%%B"=="C:" (
-        set /a DISK=FS / 1024 / 1024 / 1024
-    )
-)
-
-:: CPU temperature (best-effort, non-fatal)
-set "TEMP=Not Available"
+:: CPU temperature (best-effort, SAFE)
+set TEMP=Not Available
 for /f "tokens=2 delims==" %%T in (
  'wmic /namespace:\\root\wmi PATH MSAcpi_ThermalZoneTemperature get CurrentTemperature /value 2^>nul'
 ) do (
-    set /a TEMP=(%%T / 10) - 273
+    if not "%%T"=="" (
+        set /a RAW_TEMP=%%T
+        set /a TEMP=(RAW_TEMP / 10) - 273
+    )
 )
 
 (
@@ -114,27 +105,30 @@ echo Report Date         : %H_DATE%
 echo Report Time         : %time%
 echo Last System Boot    : %BOOT%
 echo Available RAM (MB)  : %RAM%
-echo Free Disk C: (GB)   : %DISK%
 echo CPU Temperature (C): %TEMP%
 )> "%HEALTHFILE%"
 
+endlocal
+REM ---- Delayed expansion restored ----
+
 echo [OK] Health summary saved
->>"%LOGFILE%" echo [OK] Health summary saved: %HEALTHFILE% 2>nul
+>>"%LOGFILE%" echo [OK] Health summary saved: %HEALTHFILE%
+
 :: ==================================================
-:: CPU LOAD CALCULATION
+:: CPU LOAD
 :: ==================================================
 set /a LOAD=%NUMBER_OF_PROCESSORS%/2
 if %LOAD% LSS 1 set LOAD=1
 
-:: ==================================================
-:: START CPU LOAD
-:: ==================================================
+echo [STEP] Starting CPU load (%LOAD% workers)
+>>"%LOGFILE%" echo [STEP] Starting CPU load (%LOAD% workers)
+
 for /L %%A in (1,1,%LOAD%) do (
     start "MAINT_CPU_LOAD" /min cmd /c "for /L %%i in () do rem"
 )
 
 :: ==================================================
-:: WARM-UP TIMER
+:: WARM-UP
 :: ==================================================
 set REMAIN=%WARMUP_SECONDS%
 color 0B
@@ -149,11 +143,14 @@ goto WARMUP_LOOP
 :WARMUP_DONE
 color 07
 
-:: STOP CPU LOAD
+echo [STEP] Stopping CPU load
+>>"%LOGFILE%" echo [STEP] Stopping CPU load
 taskkill /F /FI "WINDOWTITLE eq MAINT_CPU_LOAD*" /IM cmd.exe >nul 2>&1
+echo [OK] CPU load stopped
+>>"%LOGFILE%" echo [OK] CPU load stopped
 
 :: ==================================================
-:: COOLDOWN TIMER
+:: COOLDOWN
 :: ==================================================
 set CD=%COOLDOWN_SECONDS%
 color 0A
@@ -171,9 +168,7 @@ color 07
 :: ==================================================
 :: SHUTDOWN
 :: ==================================================
-if "%LOGMODE%"=="FILE" (
-    >>"%LOGFILE%" echo ===== SCRIPT END %date% %time% =====
-)
+>>"%LOGFILE%" echo ===== SCRIPT END %date% %time% =====
 
 shutdown /s /t %SHUTDOWN_WARNING_SECONDS% /c "Maintenance completed on %PCID%. Use shutdown /a to cancel."
 
