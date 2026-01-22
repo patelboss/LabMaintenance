@@ -69,12 +69,12 @@ if not exist "%PCIDFILE%" (
 set /p PCID=<"%PCIDFILE%"
 
 :: ==================================================
-:: HEALTH SUMMARY (NEW FEATURE)
+:: HEALTH SUMMARY (SAFE & NON-BLOCKING)
 :: ==================================================
 echo [STEP] Collecting system health summary
-if "%LOGMODE%"=="FILE" >>"%LOGFILE%" echo [STEP] Collecting system health summary
+>>"%LOGFILE%" echo [STEP] Collecting system health summary 2>nul
 
-:: Safe date/time (WMIC)
+:: Safe date/time
 for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value 2^>nul') do set "DT=%%I"
 set "H_DATE=%DT:~0,4%-%DT:~4,2%-%DT:~6,2%"
 set "H_TIME=%DT:~8,2%%DT:~10,2%"
@@ -86,36 +86,40 @@ set "BOOT=Unknown"
 for /f "tokens=2 delims==" %%B in ('wmic os get lastbootuptime /value 2^>nul') do set "BOOT=%%B"
 
 :: Available RAM (MB)
-set "RAM=0"
+set "RAM=Unknown"
 for /f "tokens=2 delims==" %%R in ('wmic OS get FreePhysicalMemory /value 2^>nul') do (
     set /a RAM=%%R / 1024
 )
 
-:: Free disk space on C: (GB)
-set "DISK=0"
-for /f "tokens=2 delims==" %%D in ('wmic logicaldisk where "DeviceID='C:'" get FreeSpace /value 2^>nul') do (
-    set /a DISK=%%D / 1024 / 1024 / 1024
+:: Free disk space on C: (GB) — SAFE METHOD
+set "DISK=Unknown"
+for /f "tokens=1,2 delims==" %%A in ('wmic logicaldisk get DeviceID^,FreeSpace /value 2^>nul') do (
+    if "%%A"=="FreeSpace" set "FS=%%B"
+    if "%%A"=="DeviceID" if "%%B"=="C:" (
+        set /a DISK=FS / 1024 / 1024 / 1024
+    )
 )
 
-:: CPU temperature (best effort)
-set "TEMP=0"
-for /f "tokens=2 delims==" %%T in ('wmic /namespace:\\root\wmi PATH MSAcpi_ThermalZoneTemperature get CurrentTemperature /value 2^>nul') do (
+:: CPU temperature (best-effort, non-fatal)
+set "TEMP=Not Available"
+for /f "tokens=2 delims==" %%T in (
+ 'wmic /namespace:\\root\wmi PATH MSAcpi_ThermalZoneTemperature get CurrentTemperature /value 2^>nul'
+) do (
     set /a TEMP=(%%T / 10) - 273
 )
 
 (
-echo PC ID              : %PCID%
-echo Report Date        : %H_DATE%
-echo Report Time        : %time%
-echo Last System Boot   : %BOOT%
-echo Available RAM (MB) : %RAM%
-echo Free Disk C: (GB)  : %DISK%
-echo CPU Temperature C  : %TEMP%
+echo PC ID               : %PCID%
+echo Report Date         : %H_DATE%
+echo Report Time         : %time%
+echo Last System Boot    : %BOOT%
+echo Available RAM (MB)  : %RAM%
+echo Free Disk C: (GB)   : %DISK%
+echo CPU Temperature (C): %TEMP%
 )> "%HEALTHFILE%"
 
 echo [OK] Health summary saved
-if "%LOGMODE%"=="FILE" >>"%LOGFILE%" echo [OK] Health summary saved: %HEALTHFILE%
-
+>>"%LOGFILE%" echo [OK] Health summary saved: %HEALTHFILE% 2>nul
 :: ==================================================
 :: CPU LOAD CALCULATION
 :: ==================================================
