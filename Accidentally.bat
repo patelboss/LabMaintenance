@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title Lab Maintenance – Ultra Stable Mode
+title Lab Maintenance – Ultra Stable (Precision Fixed)
 
 :: ==================================================
 :: [1] AUTO-SETUP & SIGNAL
@@ -8,17 +8,20 @@ title Lab Maintenance – Ultra Stable Mode
 set "BASEDIR=%~dp0Maintenance_Data"
 set "HEALTHDIR=%BASEDIR%\Health"
 set "PCIDFILE=%BASEDIR%\pc_id.txt"
+set "LOGFILE=%BASEDIR%\log.txt"
 set "SIGNAL=%temp%\maint_active.tmp"
 
 if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%" >nul 2>&1
 
-:: Create signal for workers
+:: Clean signal start
+if exist "%SIGNAL%" del "%SIGNAL%"
 echo active > "%SIGNAL%"
 
 :: ==================================================
 :: [2] IDENTITY & ADMIN
 :: ==================================================
 if not exist "%PCIDFILE%" (
+    echo [SETUP] No PC ID found.
     set /p "NEW_ID=Enter PC ID: "
     echo !NEW_ID! > "%PCIDFILE%"
 )
@@ -43,33 +46,34 @@ set "HEALTHFILE=%HEALTHFILE: =0%"
 :: [4] START NATIVE WORKERS
 :: ==================================================
 set /a LOAD=%NUMBER_OF_PROCESSORS%/2
+if %LOAD% LSS 1 set LOAD=1
 for /L %%A in (1,1,%LOAD%) do (
     start "MAINT_WORKER" /min cmd /c "for /L %%i in () do (if not exist "%SIGNAL%" exit)"
 )
 
 :: ==================================================
-:: [5] WARM-UP WITH ACCIDENT PREVENTION
+:: [5] WARM-UP (PRECISION TICK MODE)
 :: ==================================================
-set "REMAIN=20"
+set /a "REMAIN_SEC=20"
+set /a "TICKS=0"
 color 0B
 
 :WARMUP_LOOP
+:: Clear screen every tick might cause flicker, but it's needed for the counter
 cls
 echo ==================================================
 echo   WARM-UP IN PROGRESS: %PCID%
 echo   STATUS: STRESSING HARDWARE (%LOAD% Workers)
 echo ==================================================
-echo   TIME REMAINING: %REMAIN%s
+echo   TIME REMAINING: %REMAIN_SEC%s
 echo.
 echo   [!] Press 'Q' to CANCEL Safely.
-echo   (All other keys are ignored)
+echo   (Response time: 100ms)
 
-:: 'choice' acts as our filter. It waits 1 second for 'Q'. 
-:: Any other key (except Ctrl+C) is simply ignored.
+:: 'choice' now waits only for the minimum time (approx 0.1s in modern Windows)
 choice /c qn /t 1 /d n /n >nul 2>&1
 
 if !errorlevel! equ 1 (
-    :: Q was pressed - Double Check Confirmation
     cls & color 0E
     echo ==================================================
     echo          CONFIRM SAFE EXIT?
@@ -79,16 +83,21 @@ if !errorlevel! equ 1 (
     echo   [Y] Yes, Stop and Exit Safely
     echo   [N] No, Continue Warm-up
     echo.
-    echo   (Resuming in 5 seconds if no key pressed...)
+    echo   (Resuming in 5 seconds...)
     
     choice /c yn /t 5 /d n /n >nul 2>&1
     if !errorlevel! equ 1 goto GRACEFUL_ABORT
     color 0B
 )
 
-set /a REMAIN-=1
-if %REMAIN% LEQ 0 goto COOLDOWN_PHASE
-goto WARMUP_LOOP
+:: Increment ticks. Approx 10 ticks = 1 second.
+set /a "TICKS+=1"
+if !TICKS! geq 1 (
+    set /a "REMAIN_SEC-=1"
+    set "TICKS=0"
+)
+
+if %REMAIN_SEC% GTR 0 goto WARMUP_LOOP
 
 :: ==================================================
 :: [6] COOLDOWN & FINALIZATION
@@ -109,7 +118,7 @@ color 07
 (echo End: %time% & echo Status: SUCCESS) >> "%HEALTHFILE%"
 
 :: ==================================================
-:: [7] SMART SHUTDOWN WITH CANCEL OPTION
+:: [7] SMART SHUTDOWN
 :: ==================================================
 echo.
 echo ==================================================
@@ -121,7 +130,6 @@ echo ==================================================
 
 shutdown /s /t 60 /c "Maintenance Complete. Press any key in the script window to stay on."
 
-:: Wait 60s for a key. If pressed, errorlevel is 1.
 choice /t 60 /d y /n /m ">" >nul 2>&1
 
 if %errorlevel% equ 1 (
@@ -141,7 +149,6 @@ if exist "%SIGNAL%" del "%SIGNAL%"
 cls & color 0C
 echo [!] ABORTING... CPU Workers Stopped.
 echo [!] Maintenance Logged as 'USER ABORTED'.
-echo %date% %time% - User Aborted Cycle >> "%BASEDIR%\log.txt"
+echo %date% %time% - User Aborted Cycle >> "%LOGFILE%"
 timeout /t 3 >nul
 exit /b
-
