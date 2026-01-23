@@ -1,0 +1,211 @@
+@echo off
+setlocal EnableExtensions EnableDelayedExpansion
+title Lab Maintenance – Master Production v1.0
+
+:: ==================================================
+:: [1] DYNAMIC PATH SETUP (Self-Configuring)
+:: ==================================================
+set "BASEDIR=%~dp0Maintenance_Data"
+set "LOGFILE=%BASEDIR%\log.txt"
+set "PCIDFILE=%BASEDIR%\pc_id.txt"
+set "HEALTHDIR=%BASEDIR%\Health"
+set "MONTHLYDIR=%BASEDIR%\Monthly"
+set "SIGNAL=%temp%\maint_active.tmp"
+
+:: Silent Directory Creation
+if not exist "%BASEDIR%" mkdir "%BASEDIR%" >nul 2>&1
+if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%" >nul 2>&1
+if not exist "%MONTHLYDIR%" mkdir "%MONTHLYDIR%" >nul 2>&1
+
+:: Clean up any leftover signals from previous runs
+if exist "%SIGNAL%" del "%SIGNAL%"
+
+:: ==================================================
+:: [2] IDENTITY & ADMIN VERIFICATION
+:: ==================================================
+if not exist "%PCIDFILE%" (
+    cls
+    echo ==================================================
+    echo          FIRST-RUN SETUP: IDENTITY
+    echo ==================================================
+    set /p "NEW_ID=Enter PC ID (e.g., LAB-01): "
+    echo !NEW_ID! > "%PCIDFILE%"
+)
+set /p PCID=<"%PCIDFILE%"
+set "PCID=%PCID: =%"
+
+net session >nul 2>&1
+if errorlevel 1 (
+    color 0C
+    echo [ERROR] This script requires Administrator Rights.
+    echo Please right-click and 'Run as Administrator'.
+    pause & exit /b 1
+)
+
+:: ==================================================
+:: [3] PRE-RUN: DEVICE AUDIT & DATA COLLECTION
+:: ==================================================
+echo [STEP] Auditing Hardware...
+set "HW_STATUS=PASS"
+wmic path Win32_Keyboard get Status 2>nul | findstr /i "OK" >nul
+if errorlevel 1 set "HW_STATUS=FAIL (KBD)"
+wmic path Win32_PointingDevice get Status 2>nul | findstr /i "OK" >nul
+if errorlevel 1 set "HW_STATUS=FAIL (MOUSE)"
+
+:: Safe Date/Time (WMIC method for region independence)
+for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value 2^>nul') do set "dt=%%I"
+set "F_DATE=!dt:~0,4!-!dt:~4,2!-!dt:~6,2!"
+set "F_MONTH=!dt:~0,4!-!dt:~4,2!"
+set "START_TIME=%time%"
+
+:: Create Daily Health File
+set "HEALTHFILE=%HEALTHDIR%\Health_%PCID%_%F_DATE%_!time:~0,2!!time:~3,2!.txt"
+set "HEALTHFILE=%HEALTHFILE: =0%"
+
+:: RAM & Temperature Check
+set "MEM=Unknown"
+for /f "tokens=2 delims==" %%M in ('wmic OS get FreePhysicalMemory /value 2^>nul') do (set /a "MEM=%%M / 1024")
+set "TEMP=Not Supported"
+for /f "tokens=2 delims==" %%T in ('wmic /namespace:\\root\wmi PATH MSAcpi_ThermalZoneTemperature get CurrentTemperature /value 2^>nul') do (
+    set /a "temp_raw=%%T"
+    set /a "TEMP=(!temp_raw! / 10) - 273"
+)
+
+(
+    echo PC ID: %PCID%
+    echo Date: %F_DATE%
+    echo Start Time: %START_TIME%
+    echo Hardware Audit: %HW_STATUS%
+    echo Start RAM: %MEM% MB
+    echo CPU Temp: %TEMP% C
+    echo ---
+)> "%HEALTHFILE%"
+
+:: ==================================================
+:: [4] EXECUTION: WARM-UP (INSTANT Q-EXIT)
+:: ==================================================
+set /a LOAD=%NUMBER_OF_PROCESSORS%/2
+if %LOAD% LSS 1 set LOAD=1
+echo active > "%SIGNAL%"
+
+for /L %%A in (1,1,%LOAD%) do (
+    start "MAINT_WORKER" /min cmd /c "for /L %%i in () do (if not exist "%SIGNAL%" exit)"
+)
+
+set "REMAIN=20"
+color 0B
+:WARMUP_LOOP
+cls
+echo ==================================================
+echo   MODE: WARM-UP (PC: %PCID%)
+echo ==================================================
+echo   TIME REMAINING: %REMAIN%s
+echo   LOAD WORKERS:   %LOAD%
+echo   TEMP RECORDED:  %TEMP% C
+echo ==================================================
+echo.
+echo   [!] PRESS 'Q' TO QUIT IMMEDIATELY
+echo.
+
+choice /c qn /t 1 /d n /n >nul 2>&1
+if !errorlevel! equ 1 goto GRACEFUL_ABORT
+
+set /a REMAIN-=1
+if %REMAIN% GTR 0 goto WARMUP_LOOP
+
+:: ==================================================
+:: [5] EXECUTION: COOLDOWN (AUTO-CLEANUP)
+:: ==================================================
+if exist "%SIGNAL%" del "%SIGNAL%"
+set "CD=20"
+color 0A
+:CD_LOOP
+cls
+echo ==================================================
+echo   MODE: COOLDOWN (STABILIZING)
+echo ==================================================
+echo   TIME REMAINING: %CD%s
+echo   STATUS: WORKERS STOPPED
+echo ==================================================
+timeout /t 1 /nobreak >nul
+set /a CD-=1
+if %CD% GTR 0 goto CD_LOOP
+
+:: ==================================================
+:: [6] FINALIZATION & MONTHLY REPORT
+:: ==================================================
+color 07
+set "END_TIME=%time%"
+
+:: Disk Check
+for /f "tokens=2 delims==" %%D in ('wmic logicaldisk where "DeviceID='C:'" get FreeSpace /value 2^>nul') do set "FREE_BYTES=%%D"
+set /a FREE_GB=%FREE_BYTES:~0,-6% / 1000 2>nul
+
+:: Update Health File
+(
+    echo End Time: %END_TIME%
+    echo Final Free Disk: %FREE_GB% GB
+    echo Status: SUCCESS
+)>>"%HEALTHFILE%"
+
+:: Update Monthly Summary
+set "MONTHLYFILE=%MONTHLYDIR%\Monthly_%PCID%_%F_MONTH%.txt"
+set "RUN_COUNT=0"
+if exist "%MONTHLYFILE%" (
+    for /f "tokens=3" %%R in ('findstr /C:"Total Runs:" "%MONTHLYFILE%"') do set /a "RUN_COUNT=%%R"
+)
+set /a "RUN_COUNT+=1"
+
+(
+    echo ====================================
+    echo   MONTHLY SUMMARY: %F_MONTH%
+    echo ====================================
+    echo PC ID: %PCID%
+    echo Total Runs: %RUN_COUNT%
+    echo Last Run: %F_DATE% at %END_TIME%
+    echo HW Audit: %HW_STATUS%
+    echo Last Free Space: %FREE_GB% GB
+)> "%MONTHLYFILE%"
+
+echo [OK] All logs and reports updated.
+echo %date% %time% - Successful Cycle: %PCID% >> "%LOGFILE%"
+
+:: ==================================================
+:: [7] SMART SHUTDOWN
+:: ==================================================
+echo.
+echo ==================================================
+echo   MAINTENANCE COMPLETE
+echo ==================================================
+echo   System will shutdown in 60 seconds.
+echo   PRESS 'C' TO CANCEL AND STAY ON PC.
+echo ==================================================
+
+shutdown /s /t 60 /c "Lab Maintenance on %PCID% complete."
+
+choice /c c /t 60 /d c /n >nul 2>&1
+if !errorlevel! equ 1 (
+    shutdown /a >nul 2>&1
+    cls & color 0E
+    echo [OK] Shutdown Aborted.
+    echo The script will close in 10 seconds.
+    timeout /t 10 >nul
+    exit /b
+)
+exit /b
+
+:: ==================================================
+:: [8] THE GRACEFUL ABORT HANDLER
+:: ==================================================
+:GRACEFUL_ABORT
+if exist "%SIGNAL%" del "%SIGNAL%"
+cls & color 0C
+echo ==================================================
+echo   ABORT SIGNAL RECEIVED
+echo ==================================================
+echo   Stopping CPU Workers...
+echo   Logging status as 'USER ABORTED'...
+echo %date% %time% - USER ABORTED CYCLE: %PCID% >> "%LOGFILE%"
+timeout /t 3 /nobreak >nul
+exit /b
+
