@@ -1,147 +1,152 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title Lab Maintenance – Master Production v1.2 (Fixed)
+title Lab Maintenance – Master Production v1.2 (Debug Mode)
 
 :: ==================================================
-:: [1] PATH SETUP
+:: [1] DIRECTORY & WRITE-ACCESS CHECK
 :: ==================================================
+:: Set path to where the script is currently located
 set "BASEDIR=%~dp0Maintenance_Data"
+
+:: Force folder creation and check if it worked
+mkdir "%BASEDIR%" 2>nul
+if not exist "%BASEDIR%" (
+    color 0C
+    echo [ERROR] CRITICAL: Cannot create directory at:
+    echo "%BASEDIR%"
+    echo.
+    echo Try moving the script to your Desktop or a USB drive.
+    pause
+    exit /b
+)
+
+:: Set remaining paths
 set "LOGFILE=%BASEDIR%\log.txt"
 set "PCIDFILE=%BASEDIR%\pc_id.txt"
 set "HEALTHDIR=%BASEDIR%\Health"
 set "MONTHLYDIR=%BASEDIR%\Monthly"
 set "SIGNAL=%temp%\maint_active.tmp"
 
-if not exist "%BASEDIR%" mkdir "%BASEDIR%"
+:: Create subfolders
 if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%"
 if not exist "%MONTHLYDIR%" mkdir "%MONTHLYDIR%"
 if exist "%SIGNAL%" del "%SIGNAL%"
 
-:: ==================================================
-:: [2] ID + ADMIN CHECK
-:: ==================================================
-if not exist "%PCIDFILE%" (
-    echo First run detected – requesting PC ID
-    set /p NEW_ID=Enter PC ID: 
-    echo !NEW_ID!>"%PCIDFILE%"
-)
+:: Initial Log Entry
+echo [%date% %time%] --- SCRIPT ATTEMPT START --- >> "%LOGFILE%"
 
-set /p PCID=<"%PCIDFILE%"
-set "PCID=%PCID: =%"
-
+:: ==================================================
+:: [2] IDENTITY & ADMIN VERIFICATION
+:: ==================================================
 net session >nul 2>&1 || (
-    echo ERROR: Script not running as Administrator
+    echo [ERROR] Please right-click and 'Run as Administrator'.
+    echo [%date% %time%] FAIL: No Admin Rights >> "%LOGFILE%"
     pause
     exit /b
 )
 
+if not exist "%PCIDFILE%" (
+    cls
+    echo ==================================================
+    echo          FIRST-RUN SETUP: IDENTITY
+    echo ==================================================
+    set /p "NEW_ID=Enter PC ID (e.g., LAB-01): "
+    echo !NEW_ID!>"%PCIDFILE%"
+)
+set /p PCID=<"%PCIDFILE%"
+set "PCID=%PCID: =%"
+
 :: ==================================================
-:: [3] DATE / TIME SANITIZATION (The Fix)
+:: [3] DEVICE AUDIT (PowerShell 11 Compatible)
 :: ==================================================
+echo [STEP 1] Auditing Peripherals...
+for /f "delims=" %%A in ('powershell -command "Get-PnpDevice -ClassName Keyboard -Status OK | Select-Object -ExpandProperty FriendlyName -First 1"') do set "KBD_NAME=%%A"
+for /f "delims=" %%B in ('powershell -command "Get-PnpDevice -ClassName Mouse,PointingDevice -Status OK | Select-Object -ExpandProperty FriendlyName -First 1"') do set "MSE_NAME=%%B"
+
+set "HW_STATUS=PASS"
+if not defined KBD_NAME (set "HW_STATUS=FAIL (KBD)" & set "KBD_NAME=MISSING")
+if not defined MSE_NAME (set "HW_STATUS=FAIL (MOUSE)" & set "MSE_NAME=MISSING")
+
+:: ==================================================
+:: [4] FILE NAMES & HEALTH HEADER
+:: ==================================================
+:: Get Clean Date/Time for Filenames
 for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set "dt=%%I"
 set "F_DATE=%dt:~0,4%-%dt:~4,2%-%dt:~6,2%"
 set "F_MONTH=%dt:~0,4%-%dt:~4,2%"
-:: Create a timestamp without spaces or colons: HHMMSS
 set "F_TIME=%dt:~8,2%%dt:~10,2%%dt:~12,2%"
 
-call :LOG "Date resolved: %F_DATE%"
 set "HEALTHFILE=%HEALTHDIR%\Health_%PCID%_%F_DATE%_%F_TIME%.txt"
 
-:: ==================================================
-:: [4] HEALTH FILE HEADER
-:: ==================================================
-call :LOG "Creating health report file"
+echo [STEP 2] Creating Report: %HEALTHFILE%
+
 (
-echo PC ID: %PCID%
-echo Date: %F_DATE%
-echo Start Time: %time%
-echo Status: RUNNING
-echo ---
-)> "%HEALTHFILE%"
+    echo PC ID: %PCID%
+    echo Date: %F_DATE%
+    echo Start Time: %time%
+    echo Hardware: %HW_STATUS%
+    echo Keyboard: %KBD_NAME%
+    echo Mouse: %MSE_NAME%
+    echo ---
+) > "%HEALTHFILE%"
 
 :: ==================================================
-:: [5] WARM-UP
+:: [5] WARM-UP LOOP
 :: ==================================================
+echo [STEP 3] Starting System Warm-up...
 set /a LOAD=%NUMBER_OF_PROCESSORS%/2
 if %LOAD% LSS 1 set LOAD=1
-call :LOG "CPU Workers: %LOAD%"
-
-echo active>"%SIGNAL%"
+echo active > "%SIGNAL%"
 
 for /L %%A in (1,1,%LOAD%) do (
-    start "" /min cmd /c " :LOOP & if exist "%SIGNAL%" (timeout /t 1 >nul & goto LOOP) "
+    start "WORKER" /min cmd /c " :LOOP & if exist "%SIGNAL%" (timeout /t 1 >nul & goto LOOP) "
 )
 
-set REMAIN=10
+set REMAIN=15
 :WARMUP
 cls
-echo [PC: %PCID%] [MODE: WARM-UP]
-echo Remaining: %REMAIN% sec
+echo ==================================================
+echo   MODE: WARM-UP (PC: %PCID%)
+echo ==================================================
+echo   TIME REMAINING: %REMAIN%s
+echo   PERIPHERALS:    %HW_STATUS%
+echo ==================================================
 choice /c qn /t 1 /d n /n >nul
 if %errorlevel% equ 1 goto GRACEFUL_ABORT
 set /a REMAIN-=1
 if %REMAIN% GTR 0 goto WARMUP
 
 :: ==================================================
-:: [6] COOLDOWN
+:: [6] FINALIZING
 :: ==================================================
-call :LOG "Entering cooldown"
-if exist "%SIGNAL%" del "%SIGNAL%" >nul 2>&1
-timeout /t 5 >nul
+if exist "%SIGNAL%" del "%SIGNAL%"
+color 0A
+echo [STEP 4] Updating Reports...
 
-:: ==================================================
-:: [7] DISK SPACE
-:: ==================================================
-call :LOG "Checking disk space"
-for /f "tokens=2 delims==" %%D in ('wmic logicaldisk where "DeviceID='C:'" get FreeSpace /value') do set "FREE_BYTES=%%D"
-for /f %%G in ('powershell -command "[math]::Round(%FREE_BYTES%/1GB)"') do set "FREE_GB=%%G"
-
-call :LOG "Free disk space: %FREE_GB% GB"
-
-(
-echo End Time: %time%
-echo Free Disk: %FREE_GB% GB
-echo Status: SUCCESS
-)>>"%HEALTHFILE%"
-
-:: ==================================================
-:: [8] MONTHLY REPORT (The Logic Fix)
-:: ==================================================
-call :LOG "Updating monthly report"
+:: Monthly Logic
 set "MONTHLYFILE=%MONTHLYDIR%\Monthly_%PCID%_%F_MONTH%.txt"
 set "RUN_COUNT=0"
-
 if exist "%MONTHLYFILE%" (
-    for /f "tokens=3" %%R in ('findstr /C:"Total Runs:" "%MONTHLYFILE%"') do (
-        set "RUN_COUNT=%%R"
-    )
+    for /f "tokens=3" %%R in ('findstr /C:"Total Runs:" "%MONTHLYFILE%"') do set "RUN_COUNT=%%R"
 )
-
 set /a "RUN_COUNT+=1"
 
 (
-echo MONTH: %F_MONTH%
-echo PC ID: %PCID%
-echo Total Runs: %RUN_COUNT%
-echo Last Run: %F_DATE% %time%
-)> "%MONTHLYFILE%"
+    echo PC ID: %PCID%
+    echo Total Runs: %RUN_COUNT%
+    echo Last Run: %F_DATE% %time%
+    echo Status: SUCCESS
+) > "%MONTHLYFILE%"
 
-call :LOG "Script completed successfully"
+echo [%date% %time%] SUCCESS: %PCID% Cycle Finished >> "%LOGFILE%"
+
+echo ==================================================
+echo   MAINTENANCE COMPLETE
+echo ==================================================
 pause
 exit /b
 
-:: =========================
-:: LOG FUNCTION (Label at bottom)
-:: =========================
-:LOG
-echo [%time%] %~1
-echo [%date% %time%] %~1>>"%LOGFILE%"
-exit /b
-
-:: =========================
-:: ABORT HANDLER
-:: =========================
 :GRACEFUL_ABORT
-call :LOG "USER ABORTED SCRIPT"
-if exist "%SIGNAL%" del "%SIGNAL%" >nul 2>&1
+if exist "%SIGNAL%" del "%SIGNAL%"
+echo [%date% %time%] ABORTED by User >> "%LOGFILE%"
 exit /b
