@@ -1,127 +1,99 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title Lab Maintenance – Master Production v1.2
+title Lab Maintenance - EMERGENCY REPAIR MODE
 
 :: ==================================================
-:: [1] DYNAMIC PATH SETUP
+:: [1] FORCE FOLDER CREATION
 :: ==================================================
 set "BASEDIR=%~dp0Maintenance_Data"
+mkdir "%BASEDIR%" 2>nul
+mkdir "%BASEDIR%\Health" 2>nul
+mkdir "%BASEDIR%\Monthly" 2>nul
+
 set "LOGFILE=%BASEDIR%\log.txt"
 set "PCIDFILE=%BASEDIR%\pc_id.txt"
-set "HEALTHDIR=%BASEDIR%\Health"
-set "MONTHLYDIR=%BASEDIR%\Monthly"
-set "SIGNAL=%temp%\maint_active.tmp"
 
-if not exist "%BASEDIR%" mkdir "%BASEDIR%" >nul 2>&1
-if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%" >nul 2>&1
-if not exist "%MONTHLYDIR%" mkdir "%MONTHLYDIR%" >nul 2>&1
-if exist "%SIGNAL%" del "%SIGNAL%"
-
-:: ==================================================
-:: [2] IDENTITY & ADMIN VERIFICATION
-:: ==================================================
-if not exist "%PCIDFILE%" (
-    cls
-    echo Enter PC ID (e.g., LAB-01):
-    set /p "NEW_ID="
-    echo !NEW_ID! > "%PCIDFILE%"
+:: Test if we can actually write to the log
+echo [%time%] Script initializing... > "%LOGFILE%" || (
+    color 0C
+    echo [CRITICAL ERROR] Cannot write to the folder. 
+    echo Please move the script to your Desktop or C:\ folder.
+    pause
+    exit /b
 )
-set /p PCID=<"%PCIDFILE%"
-set "PCID=%PCID: =%"
 
+:: ==================================================
+:: [2] ADMIN CHECK
+:: ==================================================
 net session >nul 2>&1 || (
-    color 0C & echo [ERROR] Run as Administrator & pause & exit /b
+    color 0C
+    echo [ERROR] PLEASE RIGHT-CLICK AND 'RUN AS ADMINISTRATOR'
+    echo [%time%] ERROR: No Admin Rights >> "%LOGFILE%"
+    pause
+    exit /b
 )
 
 :: ==================================================
-:: [3] PRE-RUN: DATA COLLECTION (The Fix)
+:: [3] MODERN DATA COLLECTION (No WMIC)
 :: ==================================================
-echo [STEP] Auditing System...
+echo [STATUS] Gathering System Data...
 
-:: Get Hardware via PowerShell
-for /f "delims=" %%A in ('powershell -command "Get-PnpDevice -ClassName Keyboard -Status OK | Select-Object -ExpandProperty FriendlyName -First 1"') do set "KBD_NAME=%%A"
-for /f "delims=" %%B in ('powershell -command "Get-PnpDevice -ClassName Mouse,PointingDevice -Status OK | Select-Object -ExpandProperty FriendlyName -First 1"') do set "MSE_NAME=%%B"
-
-set "HW_STATUS=PASS"
-if not defined KBD_NAME (set "HW_STATUS=FAIL (KBD)" & set "KBD_NAME=MISSING")
-if not defined MSE_NAME (set "HW_STATUS=FAIL (MOUSE)" & set "MSE_NAME=MISSING")
-
-:: Get DATE & TIME via PowerShell (Fixes the garbled ~0,4 text)
-for /f "tokens=1,2" %%A in ('powershell -command "Get-Date -Format 'yyyy-MM-dd HHmmss'"') do (
+:: Get Date, RAM, and Disk using one single PowerShell call (Safest method)
+for /f "tokens=1-4" %%A in ('powershell -command "$d=Get-Date -Format 'yyyy-MM-dd HHmm'; $m=[math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024); $s=[math]::Round((Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").FreeSpace / 1GB); write-host $d $m $s"') do (
     set "F_DATE=%%A"
-    set "F_TIME_STAMP=%%B"
+    set "F_TIME=%%B"
+    set "RAM=%%C"
+    set "DISK=%%D"
 )
 set "F_MONTH=%F_DATE:~0,7%"
-set "START_TIME=%time%"
 
-:: Get RAM & Disk via PowerShell
-for /f %%M in ('powershell -command "[math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024)"') do set "MEM=%%M"
-for /f %%G in ('powershell -command "[math]::Round((Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").FreeSpace / 1GB)"') do set "FREE_GB=%%G"
+:: Get Peripherals
+for /f "delims=" %%K in ('powershell -command "Get-PnpDevice -ClassName Keyboard -Status OK | Select-Object -ExpandProperty FriendlyName -First 1"') do set "KBD=%%K"
+for /f "delims=" %%M in ('powershell -command "Get-PnpDevice -ClassName Mouse,PointingDevice -Status OK | Select-Object -ExpandProperty FriendlyName -First 1"') do set "MSE=%%M"
 
-:: Create Daily Health File
-set "HEALTHFILE=%HEALTHDIR%\Health_%PCID%_%F_DATE%_%F_TIME_STAMP%.txt"
+if not defined KBD set "KBD=MISSING"
+if not defined MSE set "MSE=MISSING"
+
+:: ==================================================
+:: [4] CREATE THE REPORTS
+:: ==================================================
+set "HEALTHFILE=%BASEDIR%\Health\Health_%F_DATE%_%F_TIME%.txt"
 
 (
-    echo PC ID: %PCID%
+    echo PC_DATA_REPORT
     echo Date: %F_DATE%
-    echo Keyboard: %KBD_NAME%
-    echo Mouse: %MSE_NAME%
-    echo Start RAM: %MEM% MB
-    echo ---
-)> "%HEALTHFILE%"
+    echo RAM: %RAM% MB
+    echo Disk: %DISK% GB
+    echo Keyboard: %KBD%
+    echo Mouse: %MSE%
+) > "%HEALTHFILE%"
 
-:: ==================================================
-:: [4] EXECUTION: WARM-UP
-:: ==================================================
-set /a LOAD=%NUMBER_OF_PROCESSORS%/2
-if %LOAD% LSS 1 set LOAD=1
-echo active > "%SIGNAL%"
-for /L %%A in (1,1,%LOAD%) do (
-    start "WORKER" /min cmd /c "for /L %%i in () do (if not exist "%SIGNAL%" exit)"
-)
+:: Monthly Log (Simplified append)
+set "MONTHLYFILE=%BASEDIR%\Monthly\Monthly_%F_MONTH%.txt"
+echo [%F_DATE% %time%] RAM:%RAM%MB Disk:%DISK%GB K:%KBD% >> "%MONTHLYFILE%"
 
-set "REMAIN=15"
-color 0B
-:WARMUP_LOOP
+:: ================================
+:: [5] THE VISUAL PROGRESS
+:: ================================
+set "REMAIN=10"
+:LOOP
 cls
-echo [PC: %PCID%] [MODE: WARM-UP] %REMAIN%s remaining
+color 0B
+echo ==========================================
+echo   LAB MAINTENANCE ACTIVE
+echo ==========================================
+echo   DATE: %F_DATE%
+echo   RAM:  %RAM% MB
+echo   DISK: %DISK% GB
+echo   KBD:  %KBD%
+echo   MSE:  %MSE%
+echo ==========================================
+echo   FINISHING IN: %REMAIN%s
 timeout /t 1 /nobreak >nul
 set /a REMAIN-=1
-if %REMAIN% GTR 0 goto WARMUP_LOOP
+if %REMAIN% GTR 0 goto :LOOP
 
-:: ==================================================
-:: [5] FINALIZATION & MONTHLY REPORT
-:: ==================================================
-if exist "%SIGNAL%" del "%SIGNAL%"
-color 07
-set "END_TIME=%time%"
-
-(
-    echo End Time: %END_TIME%
-    echo Final Free Disk: %FREE_GB% GB
-    echo Status: SUCCESS
-)>>"%HEALTHFILE%"
-
-set "MONTHLYFILE=%MONTHLYDIR%\Monthly_%PCID%_%F_MONTH%.txt"
-set "RUN_COUNT=0"
-if exist "%MONTHLYFILE%" (
-    for /f "tokens=3" %%R in ('findstr /C:"Total Runs:" "%MONTHLYFILE%"') do set /a "RUN_COUNT=%%R"
-)
-set /a "RUN_COUNT+=1"
-
-(
-    echo ====================================
-    echo   MONTHLY SUMMARY: %F_MONTH%
-    echo ====================================
-    echo PC ID: %PCID%
-    echo Total Runs: %RUN_COUNT%
-    echo Last Run: %F_DATE% at %END_TIME%
-    echo HW Audit: %HW_STATUS% (K:%KBD_NAME% M:%MSE_NAME%)
-    echo Last Free Space: %FREE_GB% GB
-)> "%MONTHLYFILE%"
-
-echo [OK] Reports updated. Success: %PCID% >> "%LOGFILE%"
-echo Maintenance Complete. System will shutdown in 60s.
-shutdown /s /t 60 /c "Maintenance Complete."
+echo [%date% %time%] SUCCESSFUL RUN >> "%LOGFILE%"
+echo.
+echo [COMPLETE] Reports are in the Maintenance_Data folder.
 pause
-exit /b
