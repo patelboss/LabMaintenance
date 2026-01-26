@@ -1,14 +1,6 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title Lab Maintenance – Master Production v1.1 (Live Logs)
-
-:: =========================
-:: LOG FUNCTION
-:: =========================
-:LOG
-echo [%time%] %*
-echo [%date% %time%] %*>>"%LOGFILE%"
-exit /b
+title Lab Maintenance – Master Production v1.2 (Fixed)
 
 :: ==================================================
 :: [1] PATH SETUP
@@ -25,47 +17,40 @@ if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%"
 if not exist "%MONTHLYDIR%" mkdir "%MONTHLYDIR%"
 if exist "%SIGNAL%" del "%SIGNAL%"
 
-call :LOG Initializing paths
-
 :: ==================================================
 :: [2] ID + ADMIN CHECK
 :: ==================================================
 if not exist "%PCIDFILE%" (
-    call :LOG First run detected – requesting PC ID
-    set /p NEW_ID=Enter PC ID:
-    echo %NEW_ID%>"%PCIDFILE%"
+    echo First run detected – requesting PC ID
+    set /p NEW_ID=Enter PC ID: 
+    echo !NEW_ID!>"%PCIDFILE%"
 )
 
 set /p PCID=<"%PCIDFILE%"
 set "PCID=%PCID: =%"
-call :LOG PC ID loaded: %PCID%
 
 net session >nul 2>&1 || (
-    call :LOG ERROR: Script not running as Administrator
+    echo ERROR: Script not running as Administrator
     pause
     exit /b
 )
-call :LOG Administrator rights confirmed
 
 :: ==================================================
-:: [3] DATE / TIME
+:: [3] DATE / TIME SANITIZATION (The Fix)
 :: ==================================================
 for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set "dt=%%I"
 set "F_DATE=%dt:~0,4%-%dt:~4,2%-%dt:~6,2%"
 set "F_MONTH=%dt:~0,4%-%dt:~4,2%"
+:: Create a timestamp without spaces or colons: HHMMSS
+set "F_TIME=%dt:~8,2%%dt:~10,2%%dt:~12,2%"
 
-set "HH=%time:~0,2%"
-set "MM=%time:~3,2%"
-set "HH=%HH: =0%"
-
-call :LOG Date resolved: %F_DATE%
-
-set "HEALTHFILE=%HEALTHDIR%\Health_%PCID%_%F_DATE%_%HH%%MM%.txt"
+call :LOG "Date resolved: %F_DATE%"
+set "HEALTHFILE=%HEALTHDIR%\Health_%PCID%_%F_DATE%_%F_TIME%.txt"
 
 :: ==================================================
 :: [4] HEALTH FILE HEADER
 :: ==================================================
-call :LOG Creating health report file
+call :LOG "Creating health report file"
 (
 echo PC ID: %PCID%
 echo Date: %F_DATE%
@@ -79,38 +64,39 @@ echo ---
 :: ==================================================
 set /a LOAD=%NUMBER_OF_PROCESSORS%/2
 if %LOAD% LSS 1 set LOAD=1
-call :LOG CPU Workers: %LOAD%
+call :LOG "CPU Workers: %LOAD%"
 
 echo active>"%SIGNAL%"
 
 for /L %%A in (1,1,%LOAD%) do (
-    start "" /min cmd /c ^
-    " :LOOP & if exist "%SIGNAL%" (timeout /t 1 >nul & goto LOOP) "
+    start "" /min cmd /c " :LOOP & if exist "%SIGNAL%" (timeout /t 1 >nul & goto LOOP) "
 )
 
 set REMAIN=10
 :WARMUP
-call :LOG Warm-up tick: %REMAIN% sec remaining
+cls
+echo [PC: %PCID%] [MODE: WARM-UP]
+echo Remaining: %REMAIN% sec
 choice /c qn /t 1 /d n /n >nul
-if errorlevel 1 goto GRACEFUL_ABORT
+if %errorlevel% equ 1 goto GRACEFUL_ABORT
 set /a REMAIN-=1
 if %REMAIN% GTR 0 goto WARMUP
 
 :: ==================================================
 :: [6] COOLDOWN
 :: ==================================================
-call :LOG Entering cooldown
-del "%SIGNAL%" >nul 2>&1
+call :LOG "Entering cooldown"
+if exist "%SIGNAL%" del "%SIGNAL%" >nul 2>&1
 timeout /t 5 >nul
 
 :: ==================================================
 :: [7] DISK SPACE
 :: ==================================================
-call :LOG Checking disk space
-for /f "tokens=2 delims==" %%D in ('wmic logicaldisk where "DeviceID='C:'" get FreeSpace /value') do set FREE_BYTES=%%D
-for /f %%G in ('powershell -command "[math]::Round(%FREE_BYTES%/1GB)"') do set FREE_GB=%%G
+call :LOG "Checking disk space"
+for /f "tokens=2 delims==" %%D in ('wmic logicaldisk where "DeviceID='C:'" get FreeSpace /value') do set "FREE_BYTES=%%D"
+for /f %%G in ('powershell -command "[math]::Round(%FREE_BYTES%/1GB)"') do set "FREE_GB=%%G"
 
-call :LOG Free disk space: %FREE_GB% GB
+call :LOG "Free disk space: %FREE_GB% GB"
 
 (
 echo End Time: %time%
@@ -119,20 +105,19 @@ echo Status: SUCCESS
 )>>"%HEALTHFILE%"
 
 :: ==================================================
-:: [8] MONTHLY REPORT
+:: [8] MONTHLY REPORT (The Logic Fix)
 :: ==================================================
-call :LOG Updating monthly report
+call :LOG "Updating monthly report"
 set "MONTHLYFILE=%MONTHLYDIR%\Monthly_%PCID%_%F_MONTH%.txt"
-set RUN_COUNT=0
+set "RUN_COUNT=0"
 
 if exist "%MONTHLYFILE%" (
-    for /f "tokens=2 delims=:" %%R in ('findstr /B "Total Runs:" "%MONTHLYFILE%"') do (
-        set RUN_COUNT=%%R
-        set RUN_COUNT=!RUN_COUNT: =!
+    for /f "tokens=3" %%R in ('findstr /C:"Total Runs:" "%MONTHLYFILE%"') do (
+        set "RUN_COUNT=%%R"
     )
 )
 
-set /a RUN_COUNT+=1
+set /a "RUN_COUNT+=1"
 
 (
 echo MONTH: %F_MONTH%
@@ -141,15 +126,22 @@ echo Total Runs: %RUN_COUNT%
 echo Last Run: %F_DATE% %time%
 )> "%MONTHLYFILE%"
 
-call :LOG Monthly report updated successfully
-call :LOG Script completed successfully
-
+call :LOG "Script completed successfully"
+pause
 exit /b
 
-:: ==================================================
-:: ABORT
-:: ==================================================
+:: =========================
+:: LOG FUNCTION (Label at bottom)
+:: =========================
+:LOG
+echo [%time%] %~1
+echo [%date% %time%] %~1>>"%LOGFILE%"
+exit /b
+
+:: =========================
+:: ABORT HANDLER
+:: =========================
 :GRACEFUL_ABORT
-call :LOG USER ABORTED SCRIPT
-del "%SIGNAL%" >nul 2>&1
+call :LOG "USER ABORTED SCRIPT"
+if exist "%SIGNAL%" del "%SIGNAL%" >nul 2>&1
 exit /b
