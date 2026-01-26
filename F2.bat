@@ -14,6 +14,18 @@ if "%MEM_MB%"=="0" (
 )
 
 
+:: ---------- DISK SPACE (SAFE) ----------
+set "FREE_GB=Not Available"
+set "FREE_BYTES="
+
+for /f "tokens=2 delims==" %%D in ('wmic logicaldisk where "DeviceID='C:'" get FreeSpace /value 2^>nul') do (
+    if not "%%D"=="" set "FREE_BYTES=%%D"
+)
+
+if defined FREE_BYTES (
+    set /a FREE_GB=FREE_BYTES / 1024 / 1024 / 1024 2>nul
+)
+
 
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
