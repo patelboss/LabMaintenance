@@ -1,3 +1,20 @@
+:: ---------- RAM (SAFE) ----------
+set "MEM_MB=0"
+
+for /f "tokens=2 delims==" %%M in ('wmic OS get FreePhysicalMemory /value 2^>nul') do (
+    if not "%%M"=="" set "MEM_RAW=%%M"
+)
+
+if defined MEM_RAW (
+    set /a MEM_MB=MEM_RAW / 1024 2>nul
+)
+
+if "%MEM_MB%"=="0" (
+    set "MEM_MB=Not Available"
+)
+
+
+
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 title Lab Maintenance – Master Production v2.0 (Windows 11 Safe)
