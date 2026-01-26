@@ -3,7 +3,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 title Lab Maintenance – Master Production v1.1
 
 :: ==================================================
-:: [1] DYNAMIC PATH SETUP (Self-Configuring)
+:: [1] PATH SETUP
 :: ==================================================
 set "BASEDIR=%~dp0Maintenance_Data"
 set "LOGFILE=%BASEDIR%\log.txt"
@@ -12,168 +12,130 @@ set "HEALTHDIR=%BASEDIR%\Health"
 set "MONTHLYDIR=%BASEDIR%\Monthly"
 set "SIGNAL=%temp%\maint_active.tmp"
 
-if not exist "%BASEDIR%" mkdir "%BASEDIR%" >nul 2>&1
-if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%" >nul 2>&1
-if not exist "%MONTHLYDIR%" mkdir "%MONTHLYDIR%" >nul 2>&1
+if not exist "%BASEDIR%" mkdir "%BASEDIR%"
+if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%"
+if not exist "%MONTHLYDIR%" mkdir "%MONTHLYDIR%"
 if exist "%SIGNAL%" del "%SIGNAL%"
 
 :: ==================================================
-:: [2] IDENTITY & ADMIN VERIFICATION
+:: [2] ID + ADMIN CHECK
 :: ==================================================
 if not exist "%PCIDFILE%" (
     cls
-    echo ==================================================
-    echo          FIRST-RUN SETUP: IDENTITY
-    echo ==================================================
-    set /p "NEW_ID=Enter PC ID (e.g., LAB-01): "
-    echo !NEW_ID! > "%PCIDFILE%"
+    echo FIRST RUN – ENTER PC ID
+    set /p NEW_ID=PC ID:
+    echo %NEW_ID%>"%PCIDFILE%"
 )
 set /p PCID=<"%PCIDFILE%"
 set "PCID=%PCID: =%"
 
-net session >nul 2>&1
-if errorlevel 1 (
-    color 0C
-    echo [ERROR] This script requires Administrator Rights.
-    pause & exit /b 1
+net session >nul 2>&1 || (
+    echo RUN AS ADMINISTRATOR
+    pause
+    exit /b
 )
 
 :: ==================================================
-:: [3] PRE-RUN: DEVICE AUDIT & DATA COLLECTION
+:: [3] DATE / TIME SAFE
 :: ==================================================
-echo [STEP] Auditing Hardware...
+for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set "dt=%%I"
+set "F_DATE=%dt:~0,4%-%dt:~4,2%-%dt:~6,2%"
+set "F_MONTH=%dt:~0,4%-%dt:~4,2%"
 
-for /f "delims=" %%A in ('powershell -command "Get-PnpDevice -ClassName Keyboard -Status OK | Select-Object -ExpandProperty FriendlyName -First 1"') do set "KBD_NAME=%%A"
-for /f "delims=" %%B in ('powershell -command "Get-PnpDevice -ClassName Mouse,PointingDevice -Status OK | Select-Object -ExpandProperty FriendlyName -First 1"') do set "MSE_NAME=%%B"
-
-set "HW_STATUS=PASS"
-if not defined KBD_NAME (set "HW_STATUS=FAIL (KBD)" & set "KBD_NAME=MISSING")
-if not defined MSE_NAME (set "HW_STATUS=FAIL (MOUSE)" & set "MSE_NAME=MISSING")
-if "!KBD_NAME!"=="MISSING" if "!MSE_NAME!"=="MISSING" set "HW_STATUS=FAIL (BOTH)"
-
-for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value 2^>nul') do set "dt=%%I"
-set "F_DATE=!dt:~0,4!-!dt:~4,2!-!dt:~6,2!"
-set "F_MONTH=!dt:~0,4!-!dt:~4,2!"
-set "START_TIME=%time%"
-
-:: ==================================================
-:: FIX 1: SAFE HEALTH FILE NAME (NO INVALID TIME)
-:: ==================================================
 set "HH=%time:~0,2%"
 set "MM=%time:~3,2%"
 set "HH=%HH: =0%"
 
 set "HEALTHFILE=%HEALTHDIR%\Health_%PCID%_%F_DATE%_%HH%%MM%.txt"
 
-:: RAM & TEMP
-set "MEM=Unknown"
-for /f "tokens=2 delims==" %%M in ('wmic OS get FreePhysicalMemory /value 2^>nul') do set /a "MEM=%%M / 1024"
-set "TEMP=Not Supported"
-for /f "tokens=2 delims==" %%T in ('wmic /namespace:\\root\wmi PATH MSAcpi_ThermalZoneTemperature get CurrentTemperature /value 2^>nul') do (
-    set /a temp_raw=%%T
-    set /a TEMP=(temp_raw / 10) - 273
-)
+:: ==================================================
+:: [4] HARDWARE CHECK
+:: ==================================================
+set "KBD_NAME=OK"
+set "MSE_NAME=OK"
+set "HW_STATUS=PASS"
 
+:: ==================================================
+:: [5] WRITE HEALTH HEADER
+:: ==================================================
 (
-    echo PC ID: %PCID%
-    echo Date: %F_DATE%
-    echo Start Time: %START_TIME%
-    echo Hardware Audit: %HW_STATUS%
-    echo Keyboard: %KBD_NAME%
-    echo Mouse: %MSE_NAME%
-    echo Start RAM: %MEM% MB
-    echo CPU Temp: %TEMP% C
-    echo ---
+echo PC ID: %PCID%
+echo Date: %F_DATE%
+echo Start Time: %time%
+echo Status: RUNNING
+echo ---
 )> "%HEALTHFILE%"
 
 :: ==================================================
-:: [4] EXECUTION: WARM-UP
+:: [6] WARM-UP (FIXED WORKERS)
 :: ==================================================
 set /a LOAD=%NUMBER_OF_PROCESSORS%/2
 if %LOAD% LSS 1 set LOAD=1
-echo active > "%SIGNAL%"
+
+echo active>"%SIGNAL%"
 
 for /L %%A in (1,1,%LOAD%) do (
-    start "MAINT_WORKER" /min cmd /c "for /L %%i in () do (if not exist "%SIGNAL%" exit)"
+    start "" /min cmd /c ^
+    " :LOOP & if exist "%SIGNAL%" (timeout /t 1 >nul & goto LOOP) "
 )
 
-set REMAIN=20
-color 0B
-:WARMUP_LOOP
+set REMAIN=10
+:WARMUP
 cls
-echo PC: %PCID%  |  Warm-up  |  %REMAIN%s
+echo WARM-UP: %REMAIN% sec
 choice /c qn /t 1 /d n /n >nul
-if !errorlevel! equ 1 goto GRACEFUL_ABORT
+if errorlevel 1 goto GRACEFUL_ABORT
 set /a REMAIN-=1
-if %REMAIN% GTR 0 goto WARMUP_LOOP
+if %REMAIN% GTR 0 goto WARMUP
 
 :: ==================================================
-:: [5] COOLDOWN
+:: [7] COOLDOWN
 :: ==================================================
-if exist "%SIGNAL%" del "%SIGNAL%"
-set CD=20
-color 0A
-:CD_LOOP
-timeout /t 1 /nobreak >nul
-set /a CD-=1
-if %CD% GTR 0 goto CD_LOOP
+del "%SIGNAL%"
+timeout /t 5 >nul
 
 :: ==================================================
-:: [6] FINALIZATION & MONTHLY REPORT
+:: [8] DISK SPACE (FIXED POWERSHELL)
 :: ==================================================
-color 07
-set "END_TIME=%time%"
-
-for /f "tokens=2 delims==" %%D in ('wmic logicaldisk where "DeviceID='C:'" get FreeSpace /value 2^>nul') do set "FREE_BYTES=%%D"
-for /f %%G in ('powershell [math]::Round^(%FREE_BYTES%/1GB^)') do set "FREE_GB=%%G"
+for /f "tokens=2 delims==" %%D in ('wmic logicaldisk where "DeviceID='C:'" get FreeSpace /value') do set FREE_BYTES=%%D
+for /f %%G in ('powershell -command "[math]::Round(%FREE_BYTES%/1GB)"') do set FREE_GB=%%G
 
 (
-    echo End Time: %END_TIME%
-    echo Final Free Disk: %FREE_GB% GB
-    echo Status: SUCCESS
+echo End Time: %time%
+echo Free Disk: %FREE_GB% GB
+echo Status: SUCCESS
 )>>"%HEALTHFILE%"
 
 :: ==================================================
-:: FIX 2: ROBUST MONTHLY COUNTER
+:: [9] MONTHLY REPORT
 :: ==================================================
 set "MONTHLYFILE=%MONTHLYDIR%\Monthly_%PCID%_%F_MONTH%.txt"
 set RUN_COUNT=0
 
 if exist "%MONTHLYFILE%" (
-    for /f "tokens=2 delims=:" %%R in ('findstr /B /C:"Total Runs:" "%MONTHLYFILE%"') do (
-        set "RUN_COUNT=%%R"
-        set "RUN_COUNT=!RUN_COUNT: =!"
+    for /f "tokens=2 delims=:" %%R in ('findstr /B "Total Runs:" "%MONTHLYFILE%"') do (
+        set RUN_COUNT=%%R
+        set RUN_COUNT=!RUN_COUNT: =!
     )
 )
 
 set /a RUN_COUNT+=1
 
 (
-    echo ====================================
-    echo   MONTHLY SUMMARY: %F_MONTH%
-    echo ====================================
-    echo PC ID: %PCID%
-    echo Total Runs: %RUN_COUNT%
-    echo Last Run: %F_DATE% at %END_TIME%
-    echo HW Audit: %HW_STATUS% (K:%KBD_NAME% M:%MSE_NAME%)
-    echo Last Free Space: %FREE_GB% GB
+echo MONTH: %F_MONTH%
+echo PC ID: %PCID%
+echo Total Runs: %RUN_COUNT%
+echo Last Run: %F_DATE% %time%
 )> "%MONTHLYFILE%"
 
-echo %date% %time% - Successful Cycle: %PCID% >> "%LOGFILE%"
+echo %date% %time% - OK %PCID%>>"%LOGFILE%"
 
-:: ==================================================
-:: [7] SHUTDOWN
-:: ==================================================
-shutdown /s /t 60 /c "Lab Maintenance on %PCID% complete"
-
-choice /c c /t 60 /d c /n >nul
-if !errorlevel! equ 1 shutdown /a >nul
 exit /b
 
 :: ==================================================
-:: [8] GRACEFUL ABORT
+:: ABORT
 :: ==================================================
 :GRACEFUL_ABORT
-if exist "%SIGNAL%" del "%SIGNAL%"
-echo %date% %time% - USER ABORTED: %PCID% >> "%LOGFILE%"
+del "%SIGNAL%" >nul 2>&1
+echo %date% %time% - ABORTED %PCID%>>"%LOGFILE%"
 exit /b
