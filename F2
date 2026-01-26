@@ -1,6 +1,14 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title Lab Maintenance – Master Production v1.1
+title Lab Maintenance – Master Production v1.1 (Live Logs)
+
+:: =========================
+:: LOG FUNCTION
+:: =========================
+:LOG
+echo [%time%] %*
+echo [%date% %time%] %*>>"%LOGFILE%"
+exit /b
 
 :: ==================================================
 :: [1] PATH SETUP
@@ -17,26 +25,30 @@ if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%"
 if not exist "%MONTHLYDIR%" mkdir "%MONTHLYDIR%"
 if exist "%SIGNAL%" del "%SIGNAL%"
 
+call :LOG Initializing paths
+
 :: ==================================================
 :: [2] ID + ADMIN CHECK
 :: ==================================================
 if not exist "%PCIDFILE%" (
-    cls
-    echo FIRST RUN – ENTER PC ID
-    set /p NEW_ID=PC ID:
+    call :LOG First run detected – requesting PC ID
+    set /p NEW_ID=Enter PC ID:
     echo %NEW_ID%>"%PCIDFILE%"
 )
+
 set /p PCID=<"%PCIDFILE%"
 set "PCID=%PCID: =%"
+call :LOG PC ID loaded: %PCID%
 
 net session >nul 2>&1 || (
-    echo RUN AS ADMINISTRATOR
+    call :LOG ERROR: Script not running as Administrator
     pause
     exit /b
 )
+call :LOG Administrator rights confirmed
 
 :: ==================================================
-:: [3] DATE / TIME SAFE
+:: [3] DATE / TIME
 :: ==================================================
 for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set "dt=%%I"
 set "F_DATE=%dt:~0,4%-%dt:~4,2%-%dt:~6,2%"
@@ -46,18 +58,14 @@ set "HH=%time:~0,2%"
 set "MM=%time:~3,2%"
 set "HH=%HH: =0%"
 
+call :LOG Date resolved: %F_DATE%
+
 set "HEALTHFILE=%HEALTHDIR%\Health_%PCID%_%F_DATE%_%HH%%MM%.txt"
 
 :: ==================================================
-:: [4] HARDWARE CHECK
+:: [4] HEALTH FILE HEADER
 :: ==================================================
-set "KBD_NAME=OK"
-set "MSE_NAME=OK"
-set "HW_STATUS=PASS"
-
-:: ==================================================
-:: [5] WRITE HEALTH HEADER
-:: ==================================================
+call :LOG Creating health report file
 (
 echo PC ID: %PCID%
 echo Date: %F_DATE%
@@ -67,10 +75,11 @@ echo ---
 )> "%HEALTHFILE%"
 
 :: ==================================================
-:: [6] WARM-UP (FIXED WORKERS)
+:: [5] WARM-UP
 :: ==================================================
 set /a LOAD=%NUMBER_OF_PROCESSORS%/2
 if %LOAD% LSS 1 set LOAD=1
+call :LOG CPU Workers: %LOAD%
 
 echo active>"%SIGNAL%"
 
@@ -81,24 +90,27 @@ for /L %%A in (1,1,%LOAD%) do (
 
 set REMAIN=10
 :WARMUP
-cls
-echo WARM-UP: %REMAIN% sec
+call :LOG Warm-up tick: %REMAIN% sec remaining
 choice /c qn /t 1 /d n /n >nul
 if errorlevel 1 goto GRACEFUL_ABORT
 set /a REMAIN-=1
 if %REMAIN% GTR 0 goto WARMUP
 
 :: ==================================================
-:: [7] COOLDOWN
+:: [6] COOLDOWN
 :: ==================================================
-del "%SIGNAL%"
+call :LOG Entering cooldown
+del "%SIGNAL%" >nul 2>&1
 timeout /t 5 >nul
 
 :: ==================================================
-:: [8] DISK SPACE (FIXED POWERSHELL)
+:: [7] DISK SPACE
 :: ==================================================
+call :LOG Checking disk space
 for /f "tokens=2 delims==" %%D in ('wmic logicaldisk where "DeviceID='C:'" get FreeSpace /value') do set FREE_BYTES=%%D
 for /f %%G in ('powershell -command "[math]::Round(%FREE_BYTES%/1GB)"') do set FREE_GB=%%G
+
+call :LOG Free disk space: %FREE_GB% GB
 
 (
 echo End Time: %time%
@@ -107,8 +119,9 @@ echo Status: SUCCESS
 )>>"%HEALTHFILE%"
 
 :: ==================================================
-:: [9] MONTHLY REPORT
+:: [8] MONTHLY REPORT
 :: ==================================================
+call :LOG Updating monthly report
 set "MONTHLYFILE=%MONTHLYDIR%\Monthly_%PCID%_%F_MONTH%.txt"
 set RUN_COUNT=0
 
@@ -128,7 +141,8 @@ echo Total Runs: %RUN_COUNT%
 echo Last Run: %F_DATE% %time%
 )> "%MONTHLYFILE%"
 
-echo %date% %time% - OK %PCID%>>"%LOGFILE%"
+call :LOG Monthly report updated successfully
+call :LOG Script completed successfully
 
 exit /b
 
@@ -136,6 +150,6 @@ exit /b
 :: ABORT
 :: ==================================================
 :GRACEFUL_ABORT
+call :LOG USER ABORTED SCRIPT
 del "%SIGNAL%" >nul 2>&1
-echo %date% %time% - ABORTED %PCID%>>"%LOGFILE%"
 exit /b
