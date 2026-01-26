@@ -1,76 +1,76 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title Lab Maintenance – Master Production v1.2 (Debug Mode)
+title Lab Maintenance – Master Production v1.3 (Path Fix)
 
 :: ==================================================
-:: [1] DIRECTORY & WRITE-ACCESS CHECK
+:: [1] ROBUST PATH INITIALIZATION
 :: ==================================================
-:: Set path to where the script is currently located
-set "BASEDIR=%~dp0Maintenance_Data"
+:: Define the name of the data folder
+set "DATA_NAME=Maintenance_Data"
 
-:: Force folder creation and check if it worked
-mkdir "%BASEDIR%" 2>nul
-if not exist "%BASEDIR%" (
+:: Create the folder in the same location as the script
+if not exist "%~dp0%DATA_NAME%" (
+    mkdir "%~dp0%DATA_NAME%" 2>nul
+)
+
+:: Verify the folder actually exists now
+if not exist "%~dp0%DATA_NAME%" (
     color 0C
-    echo [ERROR] CRITICAL: Cannot create directory at:
-    echo "%BASEDIR%"
+    echo [CRITICAL ERROR]
+    echo The script cannot create the data folder at:
+    echo "%~dp0%DATA_NAME%"
     echo.
-    echo Try moving the script to your Desktop or a USB drive.
+    echo PLEASE MOVE THE SCRIPT TO THE DESKTOP OR C:\ AND TRY AGAIN.
     pause
     exit /b
 )
 
-:: Set remaining paths
+:: Set final paths using the confirmed directory
+set "BASEDIR=%~dp0%DATA_NAME%"
 set "LOGFILE=%BASEDIR%\log.txt"
 set "PCIDFILE=%BASEDIR%\pc_id.txt"
 set "HEALTHDIR=%BASEDIR%\Health"
 set "MONTHLYDIR=%BASEDIR%\Monthly"
 set "SIGNAL=%temp%\maint_active.tmp"
 
-:: Create subfolders
+:: Create sub-directories
 if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%"
 if not exist "%MONTHLYDIR%" mkdir "%MONTHLYDIR%"
 if exist "%SIGNAL%" del "%SIGNAL%"
 
-:: Initial Log Entry
-echo [%date% %time%] --- SCRIPT ATTEMPT START --- >> "%LOGFILE%"
+:: First Log Entry
+echo [%date% %time%] --- SCRIPT STARTED --- >> "%LOGFILE%"
+echo [OK] Paths Initialized.
 
 :: ==================================================
-:: [2] IDENTITY & ADMIN VERIFICATION
+:: [2] ADMIN & IDENTITY
 :: ==================================================
 net session >nul 2>&1 || (
-    echo [ERROR] Please right-click and 'Run as Administrator'.
-    echo [%date% %time%] FAIL: No Admin Rights >> "%LOGFILE%"
+    echo [ERROR] Please Run as Administrator.
     pause
     exit /b
 )
 
 if not exist "%PCIDFILE%" (
-    cls
-    echo ==================================================
-    echo          FIRST-RUN SETUP: IDENTITY
-    echo ==================================================
-    set /p "NEW_ID=Enter PC ID (e.g., LAB-01): "
+    set /p "NEW_ID=Enter PC ID: "
     echo !NEW_ID!>"%PCIDFILE%"
 )
 set /p PCID=<"%PCIDFILE%"
 set "PCID=%PCID: =%"
 
 :: ==================================================
-:: [3] DEVICE AUDIT (PowerShell 11 Compatible)
+:: [3] DEVICE AUDIT (PowerShell)
 :: ==================================================
-echo [STEP 1] Auditing Peripherals...
+echo [STEP] Auditing Peripherals...
 for /f "delims=" %%A in ('powershell -command "Get-PnpDevice -ClassName Keyboard -Status OK | Select-Object -ExpandProperty FriendlyName -First 1"') do set "KBD_NAME=%%A"
 for /f "delims=" %%B in ('powershell -command "Get-PnpDevice -ClassName Mouse,PointingDevice -Status OK | Select-Object -ExpandProperty FriendlyName -First 1"') do set "MSE_NAME=%%B"
 
-set "HW_STATUS=PASS"
-if not defined KBD_NAME (set "HW_STATUS=FAIL (KBD)" & set "KBD_NAME=MISSING")
-if not defined MSE_NAME (set "HW_STATUS=FAIL (MOUSE)" & set "MSE_NAME=MISSING")
+if not defined KBD_NAME set "KBD_NAME=MISSING"
+if not defined MSE_NAME set "MSE_NAME=MISSING"
 
 :: ==================================================
-:: [4] FILE NAMES & HEALTH HEADER
+:: [4] DATE & FILENAMES (The Space-Safe Way)
 :: ==================================================
-:: Get Clean Date/Time for Filenames
 for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set "dt=%%I"
 set "F_DATE=%dt:~0,4%-%dt:~4,2%-%dt:~6,2%"
 set "F_MONTH=%dt:~0,4%-%dt:~4,2%"
@@ -78,22 +78,18 @@ set "F_TIME=%dt:~8,2%%dt:~10,2%%dt:~12,2%"
 
 set "HEALTHFILE=%HEALTHDIR%\Health_%PCID%_%F_DATE%_%F_TIME%.txt"
 
-echo [STEP 2] Creating Report: %HEALTHFILE%
-
+:: Create the health file immediately to test write access
 (
     echo PC ID: %PCID%
-    echo Date: %F_DATE%
-    echo Start Time: %time%
-    echo Hardware: %HW_STATUS%
     echo Keyboard: %KBD_NAME%
     echo Mouse: %MSE_NAME%
     echo ---
 ) > "%HEALTHFILE%"
 
 :: ==================================================
-:: [5] WARM-UP LOOP
+:: [5] WARM-UP & COOLDOWN
 :: ==================================================
-echo [STEP 3] Starting System Warm-up...
+echo [STEP] System Warm-up Starting...
 set /a LOAD=%NUMBER_OF_PROCESSORS%/2
 if %LOAD% LSS 1 set LOAD=1
 echo active > "%SIGNAL%"
@@ -102,28 +98,13 @@ for /L %%A in (1,1,%LOAD%) do (
     start "WORKER" /min cmd /c " :LOOP & if exist "%SIGNAL%" (timeout /t 1 >nul & goto LOOP) "
 )
 
-set REMAIN=15
-:WARMUP
-cls
-echo ==================================================
-echo   MODE: WARM-UP (PC: %PCID%)
-echo ==================================================
-echo   TIME REMAINING: %REMAIN%s
-echo   PERIPHERALS:    %HW_STATUS%
-echo ==================================================
-choice /c qn /t 1 /d n /n >nul
-if %errorlevel% equ 1 goto GRACEFUL_ABORT
-set /a REMAIN-=1
-if %REMAIN% GTR 0 goto WARMUP
-
-:: ==================================================
-:: [6] FINALIZING
-:: ==================================================
+timeout /t 10 /nobreak >nul
 if exist "%SIGNAL%" del "%SIGNAL%"
-color 0A
-echo [STEP 4] Updating Reports...
+echo [STEP] Cooldown Finished.
 
-:: Monthly Logic
+:: ==================================================
+:: [6] FINAL LOGGING
+:: ==================================================
 set "MONTHLYFILE=%MONTHLYDIR%\Monthly_%PCID%_%F_MONTH%.txt"
 set "RUN_COUNT=0"
 if exist "%MONTHLYFILE%" (
@@ -135,18 +116,10 @@ set /a "RUN_COUNT+=1"
     echo PC ID: %PCID%
     echo Total Runs: %RUN_COUNT%
     echo Last Run: %F_DATE% %time%
-    echo Status: SUCCESS
 ) > "%MONTHLYFILE%"
 
-echo [%date% %time%] SUCCESS: %PCID% Cycle Finished >> "%LOGFILE%"
-
-echo ==================================================
-echo   MAINTENANCE COMPLETE
-echo ==================================================
+echo [%date% %time%] SUCCESS >> "%LOGFILE%"
+echo ========================================
+echo   COMPLETE: Reports saved in %DATA_NAME%
+echo ========================================
 pause
-exit /b
-
-:GRACEFUL_ABORT
-if exist "%SIGNAL%" del "%SIGNAL%"
-echo [%date% %time%] ABORTED by User >> "%LOGFILE%"
-exit /b
