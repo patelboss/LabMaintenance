@@ -1,9 +1,20 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title Lab Maintenance – Master Production (Verbose Live Logs)
+title Lab Maintenance – Master Production v2.0 (Verbose Logging)
 
 :: ==================================================
-:: [1] PATH SETUP
+:: [0] LOGGING FUNCTION
+:: ==================================================
+:: This local function handles all the heavy lifting for logs
+goto :START_SCRIPT
+:WRITE_LOG
+echo [%time%] %~1
+echo [%date% %time%] %~1 >> "%LOGFILE%"
+exit /b
+
+:START_SCRIPT
+:: ==================================================
+:: [1] DYNAMIC PATH SETUP
 :: ==================================================
 set "BASEDIR=%~dp0Maintenance_Data"
 set "LOGFILE=%BASEDIR%\log.txt"
@@ -12,197 +23,195 @@ set "HEALTHDIR=%BASEDIR%\Health"
 set "MONTHLYDIR=%BASEDIR%\Monthly"
 set "SIGNAL=%temp%\maint_active.tmp"
 
-if not exist "%BASEDIR%" mkdir "%BASEDIR%" >nul 2>&1
-if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%" >nul 2>&1
-if not exist "%MONTHLYDIR%" mkdir "%MONTHLYDIR%" >nul 2>&1
-if exist "%SIGNAL%" del "%SIGNAL%" >nul 2>&1
+mkdir "%BASEDIR%" >nul 2>&1
+mkdir "%HEALTHDIR%" >nul 2>&1
+mkdir "%MONTHLYDIR%" >nul 2>&1
+if exist "%SIGNAL%" del "%SIGNAL%"
 
-if not exist "%LOGFILE%" echo.>"%LOGFILE%"
-
-:: ==================================================
-:: LOG FUNCTION (SCREEN + FILE)
-:: ==================================================
-:LOG
-echo [%~1] %~2
-echo [%~1] %~2>>"%LOGFILE%"
-exit /b
-
-call :LOG INFO "================ SCRIPT START ================"
+call :WRITE_LOG "--- NEW SESSION STARTED ---"
+call :WRITE_LOG "Directories initialized at %BASEDIR%"
 
 :: ==================================================
-:: [2] ADMIN CHECK
+:: [2] IDENTITY & ADMIN VERIFICATION
 :: ==================================================
-call :LOG STEP "Checking administrator rights"
 net session >nul 2>&1
 if errorlevel 1 (
-    call :LOG ERROR "Administrator rights REQUIRED"
+    color 0C
+    call :WRITE_LOG "CRITICAL ERROR: No Admin Rights. Script cannot proceed."
+    echo.
+    echo [!] ERROR: Please run as Administrator.
     pause
-    goto HOLD
+    goto :GRACEFUL_ABORT
 )
-call :LOG OK "Administrator confirmed"
+call :WRITE_LOG "Admin rights verified."
 
-:: ==================================================
-:: [3] PC ID
-:: ==================================================
-call :LOG STEP "Loading PC ID"
 if not exist "%PCIDFILE%" (
-    call :LOG SETUP "PC ID not found – first run"
-    set /p "NEW_ID=Enter PC ID: "
-    echo !NEW_ID!>"%PCIDFILE%"
+    call :WRITE_LOG "No PC ID found. Prompting user for setup."
+    set /p "NEW_ID=Enter PC ID (e.g., LAB-01): "
+    echo !NEW_ID! > "%PCIDFILE%"
 )
 set /p PCID=<"%PCIDFILE%"
 set "PCID=%PCID: =%"
-call :LOG INFO "PC ID = %PCID%"
+call :WRITE_LOG "Identity confirmed as: %PCID%"
 
 :: ==================================================
-:: [4] SAFE DATE & TIME (DDMMYYYYHHMM)
+:: [3] PRE-RUN: DEVICE AUDIT & DATA COLLECTION
 :: ==================================================
-call :LOG STEP "Generating safe timestamp"
-for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value 2^>nul') do set "DT=%%I"
+call :WRITE_LOG "Starting Hardware Audit..."
 
-set "YYYY=!DT:~0,4!"
-set "MM=!DT:~4,2!"
-set "DD=!DT:~6,2!"
-set "HH=!DT:~8,2!"
-set "MN=!DT:~10,2!"
+:: Keyboard
+call :WRITE_LOG "Searching for Keyboard via PnP..."
+for /f "delims=" %%A in ('powershell -command "Get-PnpDevice -ClassName Keyboard -Status OK | Select-Object -ExpandProperty FriendlyName -First 1"') do set "KBD_NAME=%%A"
+if defined KBD_NAME (call :WRITE_LOG "Keyboard Found: %KBD_NAME%") else (call :WRITE_LOG "Keyboard NOT FOUND.")
 
-set "STAMP=%DD%%MM%%YYYY%%HH%%MN%"
-set "MONTHSTAMP=%MM%%YYYY%"
+:: Mouse
+call :WRITE_LOG "Searching for Mouse/Pointing Devices..."
+for /f "delims=" %%B in ('powershell -command "Get-PnpDevice -ClassName Mouse,PointingDevice -Status OK | Select-Object -ExpandProperty FriendlyName -First 1"') do set "MSE_NAME=%%B"
+if defined MSE_NAME (call :WRITE_LOG "Mouse Found: %MSE_NAME%") else (call :WRITE_LOG "Mouse NOT FOUND.")
 
-call :LOG INFO "Timestamp = %STAMP%"
+:: Health Logic
+set "HW_STATUS=PASS"
+if not defined KBD_NAME (set "HW_STATUS=FAIL (KBD)" & set "KBD_NAME=MISSING")
+if not defined MSE_NAME (set "HW_STATUS=FAIL (MOUSE)" & set "MSE_NAME=MISSING")
 
-:: ==================================================
-:: [5] HEALTH FILE INIT
-:: ==================================================
-set "HEALTHFILE=%HEALTHDIR%\Health_%PCID%_%STAMP%.txt"
-call :LOG INFO "Health file path: %HEALTHFILE%"
-
-:: ==================================================
-:: [6] HEALTH DATA COLLECTION (VERBOSE)
-:: ==================================================
-call :LOG STEP "Starting health data collection"
-
-:: ---- RAM ----
-call :LOG STEP "Collecting available RAM"
-set "MEM=UNKNOWN"
-for /f "tokens=2 delims==" %%M in ('wmic OS get FreePhysicalMemory /value 2^>nul') do (
-    set /a MEM=%%M/1024
+:: Date/Time Replacement for WMIC
+call :WRITE_LOG "Fetching system date/time via PowerShell..."
+for /f "tokens=1,2" %%A in ('powershell -command "Get-Date -Format 'yyyy-MM-dd HHmmss'"') do (
+    set "F_DATE=%%A"
+    set "F_TIME=%%B"
 )
-call :LOG INFO "RAM detected: %MEM% MB"
+set "F_MONTH=%F_DATE:~0,7%"
+set "START_TIME=%time%"
+call :WRITE_LOG "Timestamp set to %F_DATE% %F_TIME%"
 
-:: ---- CPU TEMP ----
-call :LOG STEP "Collecting CPU temperature"
-set "TEMP=NOT_SUPPORTED"
-for /f "tokens=2 delims==" %%T in ('wmic /namespace:\\root\wmi PATH MSAcpi_ThermalZoneTemperature get CurrentTemperature /value 2^>nul') do (
-    if not "%%T"=="" (
-        set /a RAW_TEMP=%%T
-        set /a TEMP=(RAW_TEMP/10)-273
-    )
-)
+:: RAM & Temp (PowerShell Replacement)
+call :WRITE_LOG "Calculating Free RAM..."
+for /f %%M in ('powershell -command "[math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024)"') do set "MEM=%%M"
+call :WRITE_LOG "Current Free RAM: %MEM% MB"
 
-if "%TEMP%"=="NOT_SUPPORTED" (
-    call :LOG WARN "CPU temperature not supported on this system"
-) else (
-    call :LOG INFO "CPU temperature: %TEMP% C"
-)
+call :WRITE_LOG "Querying Thermal Zones..."
+for /f %%T in ('powershell -command "$t = Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue; if($t){ [math]::Round(($t.CurrentTemperature / 10) - 273) }else{'N/A'}"') do set "TEMP=%%T"
+call :WRITE_LOG "CPU Temperature Result: %TEMP% C"
 
-:: ---- WRITE HEALTH FILE ----
-call :LOG STEP "Writing health report to file"
+:: Create Daily Health File
+set "HEALTHFILE=%HEALTHDIR%\Health_%PCID%_%F_DATE%_%F_TIME%.txt"
 (
-echo PC ID: %PCID%
-echo Date-Time: %DD%-%MM%-%YYYY% %HH%:%MN%
-echo Available RAM: %MEM% MB
-echo CPU Temperature: %TEMP%
-echo ---
+    echo PC ID: %PCID%
+    echo Date: %F_DATE%
+    echo Start Time: %START_TIME%
+    echo Keyboard: %KBD_NAME%
+    echo Mouse:    %MSE_NAME%
+    echo Start RAM: %MEM% MB
+    echo CPU Temp: %TEMP% C
+    echo ---
 )> "%HEALTHFILE%"
-
-call :LOG OK "Health report created successfully"
+call :WRITE_LOG "Daily Health file created: %HEALTHFILE%"
 
 :: ==================================================
-:: [7] CPU LOAD (WARM-UP)
+:: [4] EXECUTION: WARM-UP
 :: ==================================================
-call :LOG STEP "Calculating CPU load"
+call :WRITE_LOG "Launching CPU Warm-up workers..."
 set /a LOAD=%NUMBER_OF_PROCESSORS%/2
 if %LOAD% LSS 1 set LOAD=1
-call :LOG INFO "CPU load workers = %LOAD%"
-
-echo active>"%SIGNAL%"
-call :LOG STEP "Starting CPU workers"
+echo active > "%SIGNAL%"
 
 for /L %%A in (1,1,%LOAD%) do (
-    call :LOG DEBUG "Starting worker %%A"
-    start "MAINT_WORKER" /min cmd /c "for /L %%i in () do if not exist "%SIGNAL%" exit"
+    start "MAINT_WORKER" /min cmd /c "for /L %%i in () do (if not exist "%SIGNAL%" exit)"
 )
+call :WRITE_LOG "Started %LOAD% worker threads."
 
-:: ---- WARM-UP LOOP ----
-set REMAIN=20
+set "REMAIN=20"
 color 0B
-:WARMUP
+:WARMUP_LOOP
 cls
-echo === WARM-UP MODE ===
-echo PC: %PCID%
-echo Remaining: %REMAIN%s
-timeout /t 1 /nobreak >nul
+echo [MODE: WARM-UP] PC: %PCID% | Time: %REMAIN%s
+echo Peripherals: K:%KBD_NAME% M:%MSE_NAME%
+echo ------------------------------------------
+echo CHECK LOG FILE FOR LIVE STATUS
 set /a REMAIN-=1
-if %REMAIN% GTR 0 goto WARMUP
+if %REMAIN% GTR 0 ( timeout /t 1 /nobreak >nul & goto WARMUP_LOOP )
 
 :: ==================================================
-:: [8] COOLDOWN
+:: [5] EXECUTION: COOLDOWN
 :: ==================================================
-call :LOG STEP "Stopping CPU workers"
+call :WRITE_LOG "Terminating workers (Signal Delete)..."
 if exist "%SIGNAL%" del "%SIGNAL%"
-
-set CD=20
+set "CD=20"
 color 0A
-:COOLDOWN
+:CD_LOOP
 cls
-echo === COOLDOWN MODE ===
-echo Remaining: %CD%s
-timeout /t 1 /nobreak >nul
+echo [MODE: COOLDOWN] PC: %PCID% | Time: %CD%s
+echo Status: Stabilizing System
 set /a CD-=1
-if %CD% GTR 0 goto COOLDOWN
-color 07
+if %CD% GTR 0 ( timeout /t 1 /nobreak >nul & goto CD_LOOP )
+call :WRITE_LOG "Cooldown complete."
 
 :: ==================================================
-:: [9] FINAL HEALTH UPDATE
+:: [6] FINALIZATION & REPORTS
 :: ==================================================
-call :LOG STEP "Finalizing health report"
-
-for /f "tokens=2 delims==" %%D in ('wmic logicaldisk where "DeviceID='C:'" get FreeSpace /value 2^>nul') do set "FREE_BYTES=%%D"
-for /f %%G in ('powershell [math]::Round^(%FREE_BYTES%/1GB^)') do set "FREE_GB=%%G"
+call :WRITE_LOG "Running Final Storage Audit..."
+for /f %%G in ('powershell -command "[math]::Round((Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").FreeSpace / 1GB)"') do set "FREE_GB=%%G"
+call :WRITE_LOG "Final C: Drive Space: %FREE_GB% GB"
 
 (
-echo End Time: %time%
-echo Free Disk: %FREE_GB% GB
-echo Status: SUCCESS
+    echo End Time: %time%
+    echo Final Free Disk: %FREE_GB% GB
+    echo Status: SUCCESS
 )>>"%HEALTHFILE%"
 
-call :LOG OK "Health report finalized"
-
-:: ==================================================
-:: [10] MONTHLY REPORT
-:: ==================================================
-set "MONTHLYFILE=%MONTHLYDIR%\Monthly_%PCID%_%MONTHSTAMP%.txt"
-call :LOG STEP "Updating monthly report"
-
-if not exist "%MONTHLYFILE%" (
-    call :LOG INFO "Creating new monthly report"
-    echo MONTHLY SUMMARY %MONTHSTAMP%>"%MONTHLYFILE%"
-    echo PC ID: %PCID%>>"%MONTHLYFILE%"
-    echo ------------------------------>>"%MONTHLYFILE%"
+:: Update Monthly Summary
+call :WRITE_LOG "Processing Monthly Summary..."
+set "MONTHLYFILE=%MONTHLYDIR%\Monthly_%PCID%_%F_MONTH%.txt"
+set "RUN_COUNT=0"
+if exist "%MONTHLYFILE%" (
+    for /f "tokens=3" %%R in ('findstr /C:"Total Runs:" "%MONTHLYFILE%"') do set /a "RUN_COUNT=%%R"
 )
+set /a "RUN_COUNT+=1"
 
-echo %STAMP% | Free: %FREE_GB% GB>>"%MONTHLYFILE%"
-call :LOG OK "Monthly report updated"
+(
+    echo ====================================
+    echo   MONTHLY SUMMARY: %F_MONTH%
+    echo ====================================
+    echo PC ID: %PCID%
+    echo Total Runs: %RUN_COUNT%
+    echo Last Run: %F_DATE% %time%
+    echo HW Audit: %HW_STATUS% (K:%KBD_NAME% M:%MSE_NAME%)
+    echo Last Free Space: %FREE_GB% GB
+)> "%MONTHLYFILE%"
+call :WRITE_LOG "Monthly report saved. Total runs for this month: %RUN_COUNT%"
 
 :: ==================================================
-:: [11] SHUTDOWN
+:: [7] SMART SHUTDOWN
 :: ==================================================
-call :LOG INFO "Maintenance complete – system will shutdown in 60 seconds"
-shutdown /s /t 60 /c "Lab Maintenance complete on %PCID%"
+call :WRITE_LOG "Triggering Shutdown Timer (60s)."
+shutdown /s /t 60 /c "Lab Maintenance on %PCID% complete."
 
-:HOLD
 echo.
-echo === SCRIPT PAUSED (FOR DEBUG) ===
+echo ==================================================
+echo   MAINTENANCE COMPLETE - CYCLE SUCCESSFUL
+echo ==================================================
+echo   System will shutdown in 60 seconds.
+echo   PRESS 'C' TO CANCEL.
+echo.
+
+choice /c c /t 60 /d c /n >nul 2>&1
+if !errorlevel! equ 1 (
+    shutdown /a >nul 2>&1
+    call :WRITE_LOG "Shutdown cancelled by user at console."
+    color 0E
+    echo [OK] Shutdown Aborted. Script will exit in 10s.
+    timeout /t 10 >nul
+)
+call :WRITE_LOG "--- SESSION ENDED ---"
+exit /b
+
+:: ==================================================
+:: [8] THE GRACEFUL ABORT HANDLER
+:: ==================================================
+:GRACEFUL_ABORT
+if exist "%SIGNAL%" del "%SIGNAL%"
+call :WRITE_LOG "ABORT: Script stopped prematurely."
+echo.
+echo [!] SCRIPT STOPPED. Check log.txt for details.
 pause
-goto HOLD
+exit /b
