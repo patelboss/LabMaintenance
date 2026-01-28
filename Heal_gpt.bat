@@ -1,6 +1,20 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title Health Debug Probe – Windows 11 Safe
+title Health Debug Probe – Windows 11 Safe (Fixed)
+
+:: --------------------------------------------------
+:: [1] PATHS & FOLDER INITIALIZATION
+:: --------------------------------------------------
+set "BASEDIR=%~dp0Maintenance_Data"
+set "HEALTHDIR=%BASEDIR%\Health"
+set "LOGFILE=%BASEDIR%\health_debug.log"
+
+:: Create directories (Added "|| echo" to catch permission errors immediately)
+mkdir "%BASEDIR%" >nul 2>&1
+mkdir "%HEALTHDIR%" >nul 2>&1
+
+:: Initialize Log File
+> "%LOGFILE%" echo ===== HEALTH DEBUG START %date% %time% =====
 
 echo ==================================================
 echo   HEALTH DEBUG SCRIPT – STARTING
@@ -8,35 +22,12 @@ echo ==================================================
 echo.
 
 :: --------------------------------------------------
-:: PATHS
+:: [2] START MAIN LOGIC
 :: --------------------------------------------------
-set "BASEDIR=%~dp0Maintenance_Data"
-set "HEALTHDIR=%BASEDIR%\Health"
-set "LOGFILE=%BASEDIR%\health_debug.log"
-
-if not exist "%BASEDIR%" mkdir "%BASEDIR%" >nul 2>&1
-if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%" >nul 2>&1
-
-:: --------------------------------------------------
-:: LOG FUNCTION
-:: --------------------------------------------------
-:LOG
-set "LVL=%~1"
-set "MSG=%~2"
-echo [%LVL%] %MSG%
-echo [%LVL%] %MSG%>>"%LOGFILE%"
-exit /b
-
-:: --------------------------------------------------
-:: START
-:: --------------------------------------------------
-> "%LOGFILE%" echo ===== HEALTH DEBUG START %date% %time% =====
 call :LOG INFO "BaseDir=%BASEDIR%"
 call :LOG INFO "HealthDir=%HEALTHDIR%"
 
-:: --------------------------------------------------
-:: WRITE PERMISSION TEST
-:: --------------------------------------------------
+:: --- WRITE PERMISSION TEST ---
 call :LOG STEP "Testing write permissions"
 echo test>"%BASEDIR%\.__write_test.tmp" 2>nul
 
@@ -44,64 +35,40 @@ if exist "%BASEDIR%\.__write_test.tmp" (
     del "%BASEDIR%\.__write_test.tmp"
     call :LOG OK "Write permission OK"
 ) else (
-    call :LOG ERROR "Write permission FAILED"
+    call :LOG ERROR "Write permission FAILED. Script may be in a protected folder."
 )
 
-:: --------------------------------------------------
-:: DATE & MONTH KEY (PowerShell – Win11 Safe)
-:: --------------------------------------------------
-call :LOG STEP "Collecting date/time keys"
-
+:: --- DATE & MONTH KEY ---
+call :LOG STEP "Collecting date/time keys via PowerShell"
 for /f %%A in ('powershell -NoProfile -Command "Get-Date -Format ddMMyyyyHHmm"') do set "TS=%%A"
 for /f %%B in ('powershell -NoProfile -Command "Get-Date -Format MM-yyyy"') do set "MONTHKEY=%%B"
 
 call :LOG INFO "Timestamp=%TS%"
 call :LOG INFO "MonthKey=%MONTHKEY%"
 
-:: --------------------------------------------------
-:: RAM CHECK (PowerShell CIM)
-:: --------------------------------------------------
+:: --- RAM CHECK ---
 call :LOG STEP "Collecting RAM data"
-
 set "RAM_MB=Not Available"
-for /f %%R in ('
- powershell -NoProfile -Command ^
- "[math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024)"
-') do set "RAM_MB=%%R"
+for /f %%R in ('powershell -NoProfile -Command "[math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024)"') do set "RAM_MB=%%R"
 
 call :LOG INFO "Free RAM=%RAM_MB% MB"
 
-:: --------------------------------------------------
-:: DISK CHECK (PowerShell CIM)
-:: --------------------------------------------------
+:: --- DISK CHECK ---
 call :LOG STEP "Collecting disk space"
-
 set "FREE_GB=Not Available"
-for /f %%D in ('
- powershell -NoProfile -Command ^
- "[math]::Round((Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").FreeSpace / 1GB)"
-') do set "FREE_GB=%%D"
+for /f %%D in ('powershell -NoProfile -Command "[math]::Round((Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").FreeSpace / 1GB)"') do set "FREE_GB=%%D"
 
 call :LOG INFO "Disk Free C:=%FREE_GB% GB"
 
-:: --------------------------------------------------
-:: CPU TEMPERATURE (BEST EFFORT – NON-FATAL)
-:: --------------------------------------------------
+:: --- CPU TEMPERATURE ---
 call :LOG STEP "Collecting CPU temperature"
-
 set "TEMP=Not Supported"
-for /f %%T in ('
- powershell -NoProfile -Command ^
- "$t=Get-CimInstance -Namespace root/wmi -Class MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue; if($t){[math]::Round(($t.CurrentTemperature/10)-273)}"
-') do set "TEMP=%%T"
+for /f %%T in ('powershell -NoProfile -Command "$t=Get-CimInstance -Namespace root/wmi -Class MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue; if($t){[math]::Round(($t.CurrentTemperature/10)-273)}else{'N/A'}"') do set "TEMP=%%T"
 
 call :LOG INFO "CPU Temp=%TEMP% C"
 
-:: --------------------------------------------------
-:: HEALTH FILE CREATION TEST
-:: --------------------------------------------------
+:: --- HEALTH FILE CREATION ---
 call :LOG STEP "Testing health file creation"
-
 set "HEALTHFILE=%HEALTHDIR%\Health_DEBUG_%TS%.txt"
 
 (
@@ -120,14 +87,24 @@ if exist "%HEALTHFILE%" (
 )
 
 :: --------------------------------------------------
-:: END
+:: [3] END SCRIPT
 :: --------------------------------------------------
 call :LOG INFO "Health debug completed"
-call :LOG INFO "Review: %LOGFILE%"
-
 echo.
 echo ==================================================
 echo   HEALTH DEBUG COMPLETE
+echo   Check logs: %LOGFILE%
 echo ==================================================
 pause
+exit /b
+
+:: --------------------------------------------------
+:: [4] LOG FUNCTION (MOVED TO BOTTOM)
+:: --------------------------------------------------
+:LOG
+:: Use %~1 and %~2 to remove quotes from passed arguments
+set "LVL=%~1"
+set "MSG=%~2"
+echo [%LVL%] %MSG%
+echo [%LVL%] %MSG%>>"%LOGFILE%"
 exit /b
