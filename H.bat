@@ -30,10 +30,12 @@ for /f %%M in ('powershell -NoProfile -Command "[math]::Round((Get-CimInstance W
 echo [OK] RAM: %RAM% MB
 echo [%time%] INFO: RAM captured >> "%LOGFILE%"
 
-echo [STEP 3] Fetching Disk Space (CIM Mode)...
-for /f %%D in ('powershell -NoProfile -Command "[math]::Round((Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").FreeSpace / 1GB)"') do set "DISK=%%D"
+echo [STEP 3] Fetching Disk Space 
+for /f %%D in ('powershell -NoProfile -Command "$d=(Get-CimInstance Win32_LogicalDisk | Where-Object DeviceID -eq 'C:'); if($d){ [math]::Round($d.FreeSpace / 1GB) } else { 0 }"') do set "DISK=%%D"
+if not defined DISK set "DISK=ERR"
 echo [OK] Disk: %DISK% GB
 echo [%time%] INFO: Disk captured >> "%LOGFILE%"
+
 
 :: --- [3] PERIPHERAL AUDIT (PnP Mode) ---
 echo [STEP 4] Auditing USB Peripherals...
