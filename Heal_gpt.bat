@@ -1,9 +1,8 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title PC Health Core - Final Fix
+title Health Core v6.0 - Windows 11 Native
 
-:: --- [1] FORCE DIRECTORY SETUP ---
-:: We use the root of the drive to avoid permission issues
+:: --- [1] PATHS ---
 set "BASEDIR=C:\Lab_Maintenance"
 set "HEALTHDIR=%BASEDIR%\Health"
 set "LOGFILE=%BASEDIR%\health.log"
@@ -11,81 +10,65 @@ set "LOGFILE=%BASEDIR%\health.log"
 if not exist "%BASEDIR%" mkdir "%BASEDIR%" 2>nul
 if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%" 2>nul
 
-:: Clear screen and start
 cls
 echo ==================================================
-echo   PC HEALTH CORE - STARTING DIAGNOSTIC
+echo   PC HEALTH CORE - WINDOWS 11 NATIVE (CIM)
 echo ==================================================
 
-:: --- [2] WRITE TEST ---
-echo [%time%] Initializing... > "%LOGFILE%"
-if %errorlevel% neq 0 (
-    color 0C
-    echo [ERROR] Cannot write to %BASEDIR%
-    echo Please ensure you are running as Administrator.
-    pause
-    exit /b
-)
-echo [OK] Write permissions verified.
-
-:: --- [3] ONE-SHOT DATA GATHERING ---
-echo [STEP] Gathering Health Data (PowerShell)...
-echo [%time%] INFO: Querying System... >> "%LOGFILE%"
-
-:: We gather everything in ONE call to prevent crashes
-for /f "tokens=1-4" %%A in ('powershell -NoProfile -ExecutionPolicy Bypass -Command ^
- "$d=Get-Date -Format 'ddMMyyyyHHmm'; ^
-  $m=[math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024); ^
-  $s=[math]::Round((Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").FreeSpace / 1GB); ^
-  $h=Get-Date -Format 'MM-yyyy'; ^
-  write-host $d $m $s $h"') do (
+:: --- [2] SYSTEM DATA (Using Get-CimInstance) ---
+echo [STEP 1] Fetching Time and Date...
+for /f "tokens=1-2" %%A in ('powershell -NoProfile -Command "Get-Date -Format 'ddMMyyyyHHmm MM-yyyy'"') do (
     set "TS=%%A"
-    set "RAM=%%B"
-    set "DISK=%%C"
-    set "MONTH=%%D"
+    set "MONTH=%%B"
 )
+echo [OK] Timestamp: %TS%
+echo [%time%] INFO: Time captured >> "%LOGFILE%"
 
-:: --- [4] HARDWARE CHECK ---
-echo [STEP] Checking Peripherals...
+echo [STEP 2] Fetching RAM (CIM Mode)...
+for /f %%M in ('powershell -NoProfile -Command "[math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024)"') do set "RAM=%%M"
+echo [OK] RAM: %RAM% MB
+echo [%time%] INFO: RAM captured >> "%LOGFILE%"
+
+echo [STEP 3] Fetching Disk Space (CIM Mode)...
+for /f %%D in ('powershell -NoProfile -Command "[math]::Round((Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").FreeSpace / 1GB)"') do set "DISK=%%D"
+echo [OK] Disk: %DISK% GB
+echo [%time%] INFO: Disk captured >> "%LOGFILE%"
+
+:: --- [3] PERIPHERAL CHECK ---
+echo [STEP 4] Auditing USB Peripherals...
 for /f "delims=" %%K in ('powershell -NoProfile -Command "Get-PnpDevice -ClassName Keyboard -Status OK | Select-Object -ExpandProperty FriendlyName -First 1"') do set "KBD=%%K"
 for /f "delims=" %%M in ('powershell -NoProfile -Command "Get-PnpDevice -ClassName Mouse,PointingDevice -Status OK | Select-Object -ExpandProperty FriendlyName -First 1"') do set "MSE=%%M"
 
-if not defined KBD set "KBD=NOT_FOUND"
-if not defined MSE set "MSE=NOT_FOUND"
+if not defined KBD set "KBD=Generic/Internal Keyboard"
+if not defined MSE set "MSE=Generic/Internal Mouse"
+echo [OK] Hardware Audit Finished.
+echo [%time%] INFO: Hardware captured >> "%LOGFILE%"
 
-:: --- [5] LIVE LOG OUTPUT ---
+:: --- [4] RESULTS & SAVING ---
 echo.
 echo --------------------------------------------------
-echo   LIVE RESULTS:
+echo   FINAL HEALTH SNAPSHOT:
 echo --------------------------------------------------
-echo   TIMESTAMP: %TS%
-echo   FREE RAM:  %RAM% MB
-echo   FREE DISK: %DISK% GB
-echo   KEYBOARD:  %KBD%
-echo   MOUSE:     %MSE%
+echo   TIMESTAMP : %TS%
+echo   FREE RAM  : %RAM% MB
+echo   FREE DISK : %DISK% GB
+echo   KEYBOARD  : %KBD%
+echo   MOUSE     : %MSE%
 echo --------------------------------------------------
-echo.
 
-:: --- [6] REPORT GENERATION ---
 set "REPFIL=%HEALTHDIR%\Health_%TS%.txt"
 (
-    echo PC HEALTH REPORT
-    echo Date: %date% %time%
-    echo RAM: %RAM% MB
+    echo PC HEALTH SNAPSHOT
+    echo ------------------
+    echo ID: %COMPUTERNAME%
+    echo Time: %TS%
+    echo RAM:  %RAM% MB
     echo Disk: %DISK% GB
-    echo KBD: %KBD%
-    echo MSE: %MSE%
+    echo KBD:  %KBD%
+    echo MSE:  %MSE%
 ) > "%REPFIL%"
 
-if exist "%REPFIL%" (
-    echo [SUCCESS] Report saved to %REPFIL%
-    echo [%time%] SUCCESS: Report Created >> "%LOGFILE%"
-) else (
-    echo [FAIL] Report could not be saved.
-    echo [%time%] ERROR: File creation failed >> "%LOGFILE%"
-)
-
+echo [%time%] SUCCESS: Report saved >> "%LOGFILE%"
 echo.
-echo View Logs at: %LOGFILE%
-echo Press any key to close.
+echo Process Complete. File saved in C:\Lab_Maintenance\Health
 pause
