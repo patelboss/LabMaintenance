@@ -1,83 +1,91 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title PC Health Monitor – Win11 Stable
+title PC Health Core - Final Fix
 
-:: --- [1] DIRECTORY SETUP ---
-set "BASEDIR=%~dp0Maintenance_Data"
+:: --- [1] FORCE DIRECTORY SETUP ---
+:: We use the root of the drive to avoid permission issues
+set "BASEDIR=C:\Lab_Maintenance"
 set "HEALTHDIR=%BASEDIR%\Health"
-set "LOGFILE=%BASEDIR%\health_debug.log"
+set "LOGFILE=%BASEDIR%\health.log"
 
 if not exist "%BASEDIR%" mkdir "%BASEDIR%" 2>nul
 if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%" 2>nul
 
-:: Initial log entry
-echo [%date% %time%] --- MONITOR START --- > "%LOGFILE%"
-
+:: Clear screen and start
+cls
 echo ==================================================
-echo   PC HEALTH MONITOR (LIVE LOGS)
+echo   PC HEALTH CORE - STARTING DIAGNOSTIC
 echo ==================================================
 
-:: --- [2] SINGLE DATA PACKET GATHERING ---
-echo [STEP] Gathering System Health Data...
-echo [%time%] INFO: Executing PowerShell Data Packet... >> "%LOGFILE%"
+:: --- [2] WRITE TEST ---
+echo [%time%] Initializing... > "%LOGFILE%"
+if %errorlevel% neq 0 (
+    color 0C
+    echo [ERROR] Cannot write to %BASEDIR%
+    echo Please ensure you are running as Administrator.
+    pause
+    exit /b
+)
+echo [OK] Write permissions verified.
 
-:: This combined command pulls Date, Month, RAM, and Disk in one go for maximum stability
-for /f "tokens=1-4" %%A in ('powershell -NoProfile -Command ^
- "$ts=Get-Date -Format 'ddMMyyyyHHmm'; ^
-  $mon=Get-Date -Format 'MM-yyyy'; ^
-  $ram=[math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024); ^
-  $disk=[math]::Round((Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").FreeSpace / 1GB); ^
-  write-host $ts $mon $ram $disk"') do (
+:: --- [3] ONE-SHOT DATA GATHERING ---
+echo [STEP] Gathering Health Data (PowerShell)...
+echo [%time%] INFO: Querying System... >> "%LOGFILE%"
+
+:: We gather everything in ONE call to prevent crashes
+for /f "tokens=1-4" %%A in ('powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+ "$d=Get-Date -Format 'ddMMyyyyHHmm'; ^
+  $m=[math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024); ^
+  $s=[math]::Round((Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").FreeSpace / 1GB); ^
+  $h=Get-Date -Format 'MM-yyyy'; ^
+  write-host $d $m $s $h"') do (
     set "TS=%%A"
-    set "MONTHKEY=%%B"
-    set "RAM_MB=%%C"
-    set "FREE_GB=%%D"
+    set "RAM=%%B"
+    set "DISK=%%C"
+    set "MONTH=%%D"
 )
 
-:: Live Log Output
-echo [INFO] Timestamp: %TS%
-echo [INFO] Month:     %MONTHKEY%
-echo [INFO] Free RAM:  %RAM_MB% MB
-echo [INFO] Disk Free: %FREE_GB% GB
-echo [%time%] DATA: TS=%TS% RAM=%RAM_MB% DISK=%FREE_GB% >> "%LOGFILE%"
-
-:: --- [3] HARDWARE AUDIT (Keyboard/Mouse) ---
+:: --- [4] HARDWARE CHECK ---
 echo [STEP] Checking Peripherals...
 for /f "delims=" %%K in ('powershell -NoProfile -Command "Get-PnpDevice -ClassName Keyboard -Status OK | Select-Object -ExpandProperty FriendlyName -First 1"') do set "KBD=%%K"
-for /f "delims=" %%M in ('powershell -command "Get-PnpDevice -ClassName Mouse,PointingDevice -Status OK | Select-Object -ExpandProperty FriendlyName -First 1"') do set "MSE=%%M"
+for /f "delims=" %%M in ('powershell -NoProfile -Command "Get-PnpDevice -ClassName Mouse,PointingDevice -Status OK | Select-Object -ExpandProperty FriendlyName -First 1"') do set "MSE=%%M"
 
-if not defined KBD set "KBD=MISSING"
-if not defined MSE set "MSE=MISSING"
+if not defined KBD set "KBD=NOT_FOUND"
+if not defined MSE set "MSE=NOT_FOUND"
 
-echo [INFO] Keyboard:  %KBD%
-echo [INFO] Mouse:     %MSE%
-echo [%time%] HW: K=%KBD% M=%MSE% >> "%LOGFILE%"
+:: --- [5] LIVE LOG OUTPUT ---
+echo.
+echo --------------------------------------------------
+echo   LIVE RESULTS:
+echo --------------------------------------------------
+echo   TIMESTAMP: %TS%
+echo   FREE RAM:  %RAM% MB
+echo   FREE DISK: %DISK% GB
+echo   KEYBOARD:  %KBD%
+echo   MOUSE:     %MSE%
+echo --------------------------------------------------
+echo.
 
-:: --- [4] REPORT CREATION ---
-echo [STEP] Creating Health Report...
-set "REPORT=%HEALTHDIR%\Health_%TS%.txt"
-
+:: --- [6] REPORT GENERATION ---
+set "REPFIL=%HEALTHDIR%\Health_%TS%.txt"
 (
     echo PC HEALTH REPORT
-    echo -----------------
-    echo TIMESTAMP: %TS%
-    echo RAM FREE:  %RAM_MB% MB
-    echo DISK FREE: %FREE_GB% GB
-    echo KEYBOARD:  %KBD%
-    echo MOUSE:     %MSE%
-) > "%REPORT%"
+    echo Date: %date% %time%
+    echo RAM: %RAM% MB
+    echo Disk: %DISK% GB
+    echo KBD: %KBD%
+    echo MSE: %MSE%
+) > "%REPFIL%"
 
-if exist "%REPORT%" (
-    echo [OK] Report created: %REPORT%
-    echo [%time%] SUCCESS: Report saved >> "%LOGFILE%"
+if exist "%REPFIL%" (
+    echo [SUCCESS] Report saved to %REPFIL%
+    echo [%time%] SUCCESS: Report Created >> "%LOGFILE%"
 ) else (
-    echo [ERROR] Failed to save report.
+    echo [FAIL] Report could not be saved.
     echo [%time%] ERROR: File creation failed >> "%LOGFILE%"
 )
 
 echo.
-echo ==================================================
-echo   MONITORING COMPLETE
-echo   Logs: %LOGFILE%
-echo ==================================================
+echo View Logs at: %LOGFILE%
+echo Press any key to close.
 pause
