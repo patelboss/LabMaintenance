@@ -1,110 +1,83 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title Health Debug Probe – Windows 11 Safe (Fixed)
+title PC Health Monitor – Win11 Stable
 
-:: --------------------------------------------------
-:: [1] PATHS & FOLDER INITIALIZATION
-:: --------------------------------------------------
+:: --- [1] DIRECTORY SETUP ---
 set "BASEDIR=%~dp0Maintenance_Data"
 set "HEALTHDIR=%BASEDIR%\Health"
 set "LOGFILE=%BASEDIR%\health_debug.log"
 
-:: Create directories (Added "|| echo" to catch permission errors immediately)
-mkdir "%BASEDIR%" >nul 2>&1
-mkdir "%HEALTHDIR%" >nul 2>&1
+if not exist "%BASEDIR%" mkdir "%BASEDIR%" 2>nul
+if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%" 2>nul
 
-:: Initialize Log File
-> "%LOGFILE%" echo ===== HEALTH DEBUG START %date% %time% =====
+:: Initial log entry
+echo [%date% %time%] --- MONITOR START --- > "%LOGFILE%"
 
 echo ==================================================
-echo   HEALTH DEBUG SCRIPT – STARTING
+echo   PC HEALTH MONITOR (LIVE LOGS)
 echo ==================================================
-echo.
 
-:: --------------------------------------------------
-:: [2] START MAIN LOGIC
-:: --------------------------------------------------
-call :LOG INFO "BaseDir=%BASEDIR%"
-call :LOG INFO "HealthDir=%HEALTHDIR%"
+:: --- [2] SINGLE DATA PACKET GATHERING ---
+echo [STEP] Gathering System Health Data...
+echo [%time%] INFO: Executing PowerShell Data Packet... >> "%LOGFILE%"
 
-:: --- WRITE PERMISSION TEST ---
-call :LOG STEP "Testing write permissions"
-echo test>"%BASEDIR%\.__write_test.tmp" 2>nul
-
-if exist "%BASEDIR%\.__write_test.tmp" (
-    del "%BASEDIR%\.__write_test.tmp"
-    call :LOG OK "Write permission OK"
-) else (
-    call :LOG ERROR "Write permission FAILED. Script may be in a protected folder."
+:: This combined command pulls Date, Month, RAM, and Disk in one go for maximum stability
+for /f "tokens=1-4" %%A in ('powershell -NoProfile -Command ^
+ "$ts=Get-Date -Format 'ddMMyyyyHHmm'; ^
+  $mon=Get-Date -Format 'MM-yyyy'; ^
+  $ram=[math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024); ^
+  $disk=[math]::Round((Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").FreeSpace / 1GB); ^
+  write-host $ts $mon $ram $disk"') do (
+    set "TS=%%A"
+    set "MONTHKEY=%%B"
+    set "RAM_MB=%%C"
+    set "FREE_GB=%%D"
 )
 
-:: --- DATE & MONTH KEY ---
-call :LOG STEP "Collecting date/time keys via PowerShell"
-for /f %%A in ('powershell -NoProfile -Command "Get-Date -Format ddMMyyyyHHmm"') do set "TS=%%A"
-for /f %%B in ('powershell -NoProfile -Command "Get-Date -Format MM-yyyy"') do set "MONTHKEY=%%B"
+:: Live Log Output
+echo [INFO] Timestamp: %TS%
+echo [INFO] Month:     %MONTHKEY%
+echo [INFO] Free RAM:  %RAM_MB% MB
+echo [INFO] Disk Free: %FREE_GB% GB
+echo [%time%] DATA: TS=%TS% RAM=%RAM_MB% DISK=%FREE_GB% >> "%LOGFILE%"
 
-call :LOG INFO "Timestamp=%TS%"
-call :LOG INFO "MonthKey=%MONTHKEY%"
+:: --- [3] HARDWARE AUDIT (Keyboard/Mouse) ---
+echo [STEP] Checking Peripherals...
+for /f "delims=" %%K in ('powershell -NoProfile -Command "Get-PnpDevice -ClassName Keyboard -Status OK | Select-Object -ExpandProperty FriendlyName -First 1"') do set "KBD=%%K"
+for /f "delims=" %%M in ('powershell -command "Get-PnpDevice -ClassName Mouse,PointingDevice -Status OK | Select-Object -ExpandProperty FriendlyName -First 1"') do set "MSE=%%M"
 
-:: --- RAM CHECK ---
-call :LOG STEP "Collecting RAM data"
-set "RAM_MB=Not Available"
-for /f %%R in ('powershell -NoProfile -Command "[math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024)"') do set "RAM_MB=%%R"
+if not defined KBD set "KBD=MISSING"
+if not defined MSE set "MSE=MISSING"
 
-call :LOG INFO "Free RAM=%RAM_MB% MB"
+echo [INFO] Keyboard:  %KBD%
+echo [INFO] Mouse:     %MSE%
+echo [%time%] HW: K=%KBD% M=%MSE% >> "%LOGFILE%"
 
-:: --- DISK CHECK ---
-call :LOG STEP "Collecting disk space"
-set "FREE_GB=Not Available"
-for /f %%D in ('powershell -NoProfile -Command "[math]::Round((Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\").FreeSpace / 1GB)"') do set "FREE_GB=%%D"
-
-call :LOG INFO "Disk Free C:=%FREE_GB% GB"
-
-:: --- CPU TEMPERATURE ---
-call :LOG STEP "Collecting CPU temperature"
-set "TEMP=Not Supported"
-for /f %%T in ('powershell -NoProfile -Command "$t=Get-CimInstance -Namespace root/wmi -Class MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue; if($t){[math]::Round(($t.CurrentTemperature/10)-273)}else{'N/A'}"') do set "TEMP=%%T"
-
-call :LOG INFO "CPU Temp=%TEMP% C"
-
-:: --- HEALTH FILE CREATION ---
-call :LOG STEP "Testing health file creation"
-set "HEALTHFILE=%HEALTHDIR%\Health_DEBUG_%TS%.txt"
+:: --- [4] REPORT CREATION ---
+echo [STEP] Creating Health Report...
+set "REPORT=%HEALTHDIR%\Health_%TS%.txt"
 
 (
- echo Timestamp     : %TS%
- echo MonthKey      : %MONTHKEY%
- echo Free RAM (MB) : %RAM_MB%
- echo Free Disk GB  : %FREE_GB%
- echo CPU Temp C    : %TEMP%
-)> "%HEALTHFILE%" 2>nul
+    echo PC HEALTH REPORT
+    echo -----------------
+    echo TIMESTAMP: %TS%
+    echo RAM FREE:  %RAM_MB% MB
+    echo DISK FREE: %FREE_GB% GB
+    echo KEYBOARD:  %KBD%
+    echo MOUSE:     %MSE%
+) > "%REPORT%"
 
-if exist "%HEALTHFILE%" (
-    call :LOG OK "Health file created successfully"
-    call :LOG INFO "File=%HEALTHFILE%"
+if exist "%REPORT%" (
+    echo [OK] Report created: %REPORT%
+    echo [%time%] SUCCESS: Report saved >> "%LOGFILE%"
 ) else (
-    call :LOG ERROR "Health file creation FAILED"
+    echo [ERROR] Failed to save report.
+    echo [%time%] ERROR: File creation failed >> "%LOGFILE%"
 )
 
-:: --------------------------------------------------
-:: [3] END SCRIPT
-:: --------------------------------------------------
-call :LOG INFO "Health debug completed"
 echo.
 echo ==================================================
-echo   HEALTH DEBUG COMPLETE
-echo   Check logs: %LOGFILE%
+echo   MONITORING COMPLETE
+echo   Logs: %LOGFILE%
 echo ==================================================
 pause
-exit /b
-
-:: --------------------------------------------------
-:: [4] LOG FUNCTION (MOVED TO BOTTOM)
-:: --------------------------------------------------
-:LOG
-:: Use %~1 and %~2 to remove quotes from passed arguments
-set "LVL=%~1"
-set "MSG=%~2"
-echo [%LVL%] %MSG%
-echo [%LVL%] %MSG%>>"%LOGFILE%"
-exit /b
