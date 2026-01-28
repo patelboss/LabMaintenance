@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title Lab Maintenance Master – v1.0 [Win11 Native]
+title Lab Maintenance Master – v1.1 [Stable Worker Edition]
 
 :: ==================================================
 :: [1] DIRECTORY & PATH SETUP
@@ -10,15 +10,14 @@ set "HEALTHDIR=%BASEDIR%\Health"
 set "MONTHLYDIR=%BASEDIR%\Monthly"
 set "PCIDFILE=%BASEDIR%\pc_id.txt"
 set "LOGFILE=%BASEDIR%\master_log.log"
-set "SIGNAL=%temp%\maint_active.tmp"
+set "SIGNAL=%temp%\maint_active.txt"
 
-:: Ensure directories exist
 if not exist "%BASEDIR%" mkdir "%BASEDIR%" >nul 2>&1
 if not exist "%HEALTHDIR%" mkdir "%HEALTHDIR%" >nul 2>&1
 if not exist "%MONTHLYDIR%" mkdir "%MONTHLYDIR%" >nul 2>&1
 
-:: Clean up signal files
-if exist "%SIGNAL%" del "%SIGNAL%" >nul 2>&1
+:: CRITICAL: Ensure signal file is fresh
+echo active > "%SIGNAL%"
 
 :: ==================================================
 :: [2] IDENTITY & ADMIN VERIFICATION
@@ -32,10 +31,8 @@ if errorlevel 1 (
 
 if not exist "%PCIDFILE%" (
     cls
-    echo ==================================================
-    echo          FIRST-RUN SETUP: IDENTITY
-    echo ==================================================
-    set /p "NEW_ID=Enter PC ID (e.g., PC-01): "
+    echo Enter PC ID (e.g., PC-01):
+    set /p "NEW_ID="
     echo !NEW_ID! > "%PCIDFILE%"
 )
 set /p PCID=<"%PCIDFILE%"
@@ -61,32 +58,24 @@ if defined KBD_NAME (set "KBD_STATUS=OK") else (set "KBD_STATUS=MISSING" & set "
 for /f "delims=" %%M in ('powershell -NoProfile -Command "Get-PnpDevice -ClassName Mouse,PointingDevice -Status OK | Select-Object -ExpandProperty FriendlyName -First 1"') do set "MSE_NAME=%%M"
 if defined MSE_NAME (set "MSE_STATUS=OK") else (set "MSE_STATUS=MISSING" & set "MSE_NAME=None")
 
-:: --- CREATE INITIAL HEALTH FILE ---
 set "HEALTHFILE=%HEALTHDIR%\Health_%PCID%_%TS%.txt"
 (
     echo PC AUDIT REPORT
-    echo ------------------
-    echo ID        : %PCID%
-    echo Time      : %TS%
-    echo [SYSTEM]
-    echo RAM FREE  : %RAM% MB
-    echo DISK FREE : %DISK% GB
-    echo [HARDWARE]
-    echo KEYBOARD  : %KBD_STATUS% [%KBD_NAME%]
-    echo MOUSE     : %MSE_STATUS% [%MSE_NAME%]
-    echo ------------------
+    echo ID: %PCID% | Time: %TS%
+    echo RAM: %RAM% MB | Disk: %DISK% GB
+    echo KBD: %KBD_STATUS% [%KBD_NAME%] | MSE: %MSE_STATUS% [%MSE_NAME%]
     echo Start Time: %time%
 ) > "%HEALTHFILE%"
 
 :: ==================================================
-:: [4] WARM-UP (LOAD TEST)
+:: [4] WARM-UP (FIXED WORKER LOGIC)
 :: ==================================================
 set /a LOAD=%NUMBER_OF_PROCESSORS%/2
 if %LOAD% LSS 1 set LOAD=1
-echo active > "%SIGNAL%"
 
+:: Start Workers. They check for the signal file every second.
 for /L %%A in (1,1,%LOAD%) do (
-    start "MAINT_WORKER" /min cmd /c "for /L %%i in () do (if not exist "%SIGNAL%" exit)"
+    start "MAINT_WORKER" /min cmd /c "echo Worker %%A started... & :LOOP & timeout /t 1 >nul & if exist %SIGNAL% goto LOOP"
 )
 
 set "REMAIN=20"
@@ -96,12 +85,11 @@ cls
 echo ==================================================
 echo   PC: %PCID%  |  STATUS: WARM-UP (%REMAIN%s)
 echo ==================================================
-echo   KBD: %KBD_STATUS% (%KBD_NAME%)
-echo   MSE: %MSE_STATUS% (%MSE_NAME%)
-echo   RAM: %RAM% MB | DISK: %DISK% GB
+echo   KBD: %KBD_STATUS% | MSE: %MSE_STATUS%
+echo   CPU WORKERS ACTIVE: %LOAD%
 echo ==================================================
 echo.
-echo   [!] PRESS 'Q' TO QUIT IMMEDIATELY
+echo   [!] PRESS 'Q' TO QUIT AND STOP LOAD
 echo.
 
 choice /c qn /t 1 /d n /n >nul 2>&1
@@ -111,18 +99,19 @@ set /a REMAIN-=1
 if %REMAIN% GTR 0 goto WARMUP_LOOP
 
 :: ==================================================
-:: [5] COOLDOWN & FINALIZATION
+:: [5] COOLDOWN (KILL WORKERS)
 :: ==================================================
 :COOLDOWN_PHASE
+:: Deleting the signal file tells the workers to exit their loops
 if exist "%SIGNAL%" del "%SIGNAL%" >nul 2>&1
-set "CD=20"
+set "CD=15"
 color 0A
 :CD_LOOP
 cls
 echo ==================================================
 echo   PC: %PCID%  |  STATUS: COOLDOWN (%CD%s)
 echo ==================================================
-echo   STABILIZING HARDWARE...
+echo   WORKERS STOPPED. STABILIZING HARDWARE...
 echo ==================================================
 timeout /t 1 /nobreak >nul
 set /a CD-=1
@@ -132,7 +121,7 @@ if %CD% GTR 0 goto CD_LOOP
 (echo End Time: %time% & echo Status: SUCCESS) >> "%HEALTHFILE%"
 
 :: ==================================================
-:: [6] UPDATING MONTHLY REPORT (DEEP LOGGING)
+:: [6] UPDATING MONTHLY REPORT
 :: ==================================================
 set "MONTHLYFILE=%MONTHLYDIR%\Monthly_%PCID%_%MONTHKEY%.txt"
 set "RUN_COUNT=0"
@@ -144,22 +133,19 @@ if exist "%MONTHLYFILE%" (
         set "RUN_COUNT=!VAL!"
     )
 )
-
 set /a RUN_COUNT+=1
 
 (
     echo ====================================
-    echo MONTHLY SUMMARY
+    echo MONTHLY SUMMARY: %MONTHKEY%
     echo ====================================
     echo PC ID      : %PCID%
-    echo Month      : %MONTHKEY%
     echo Total Runs : %RUN_COUNT%
     echo Last Run   : %TS%
-    echo Last Audit : RAM:%RAM%MB DISK:%DISK%GB
 )> "%MONTHLYFILE%"
 
 :: ==================================================
-:: [7] SMART SHUTDOWN
+:: [7] SHUTDOWN LOGIC
 :: ==================================================
 color 07
 cls
@@ -167,30 +153,23 @@ echo ==================================================
 echo   MAINTENANCE COMPLETE - %PCID%
 echo ==================================================
 echo   System will shutdown in 60 seconds.
-echo   PRESS 'C' TO CANCEL AND STAY ON PC.
+echo   PRESS 'C' TO CANCEL SHUTDOWN.
 echo ==================================================
 
-shutdown /s /t 60 /c "Maintenance on %PCID% complete."
+shutdown /s /t 60 /c "Maintenance Complete."
 
 choice /c c /t 60 /d c /n >nul 2>&1
 if !errorlevel! equ 1 (
     shutdown /a >nul 2>&1
-    cls & color 0E
     echo [OK] Shutdown Aborted.
-    echo Script finished.
-    timeout /t 10 >nul
+    timeout /t 5 >nul
     exit /b
 )
 exit /b
 
-:: ==================================================
-:: [8] INSTANT ABORT HANDLER
-:: ==================================================
 :GRACEFUL_ABORT
 if exist "%SIGNAL%" del "%SIGNAL%" >nul 2>&1
 cls & color 0C
-echo [!] ABORT SIGNAL RECEIVED.
-echo [!] Stopping CPU Workers and Exiting...
-echo %date% %time% - User Aborted Cycle: %PCID% >> "%LOGFILE%"
+echo [!] ABORTING... Stopping CPU Workers.
 timeout /t 2 /nobreak >nul
 exit /b
