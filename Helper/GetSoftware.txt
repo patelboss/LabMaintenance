@@ -1,0 +1,33 @@
+# Create or clear the report file first
+$reportPath = "C:\Admin_Data\Lab_Software_Inventory.csv"
+New-Item -Path $reportPath -ItemType File -Force
+
+foreach ($pc in $pcs) {
+    Write-Host "Inventorying $pc..." -ForegroundColor Cyan
+    
+    try {
+        $software = Invoke-Command -ComputerName $pc -ScriptBlock {
+            # Registry locations for 64-bit and 32-bit software
+            $keys = @(
+                "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+                "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+            )
+
+            Get-ItemProperty $keys | 
+                Where-Object { $_.DisplayName -ne $null } | 
+                Select-Object @{n='ComputerName';e={$env:COMPUTERNAME}}, 
+                              DisplayName, 
+                              DisplayVersion, 
+                              Publisher, 
+                              InstallDate
+        }
+
+        # Append the results to your Admin PC's CSV
+        $software | Export-Csv -Path $reportPath -NoTypeInformation -Append
+        Write-Host "Done with $pc" -ForegroundColor Green
+    }
+    catch {
+        Write-Warning "Could not reach $pc: $($_.Exception.Message)"
+    }
+}
+
