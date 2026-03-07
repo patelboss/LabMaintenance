@@ -3,7 +3,7 @@
 # ==================================================
 $PCID      = $env:COMPUTERNAME
 $AdminPC   = "PC-01"
-$AdminRoot = "\\$AdminPC\c$\Users\window\All_PCs_Health"
+$AdminRoot = "\\$AdminPC\All_PCs_Health"
 $BaseDir   = "C:\Lab_Maintenance"
 $HealthDir = "$BaseDir\Health"
 $ErrorLog  = "$BaseDir\error.log"
