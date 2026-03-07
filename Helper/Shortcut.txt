@@ -1,0 +1,18 @@
+$pcs | ForEach-Object {
+    Write-Host "Creating shortcut on $_..." -ForegroundColor Cyan
+    
+    Invoke-Command -ComputerName $_ -ScriptBlock {
+        $WshShell = New-Object -ComObject WScript.Shell
+        # Public Desktop ensures EVERY user sees the icon
+        $Shortcut = $WshShell.CreateShortcut("C:\Users\Public\Desktop\This PC.lnk")
+        
+        # Using the %USERPROFILE% variable makes it dynamic for the clicker
+        $Shortcut.TargetPath = "%USERPROFILE%" 
+        $Shortcut.WindowStyle = 1
+        $Shortcut.IconLocation = "imageres.dll,4" # This gives it the 'PC' icon look
+        $Shortcut.Save()
+    }
+    
+    Write-Host "Done with $_" -ForegroundColor Green
+}
+
