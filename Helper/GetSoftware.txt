@@ -27,7 +27,7 @@ foreach ($pc in $pcs) {
         Write-Host "Done with $pc" -ForegroundColor Green
     }
     catch {
-        Write-Warning "Could not reach $pc: $($_.Exception.Message)"
+        Write-Warning "Could not reach $pc $($_.Exception.Message)"
     }
 }
 
