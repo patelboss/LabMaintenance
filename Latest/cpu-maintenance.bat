@@ -86,7 +86,7 @@ echo ==================================================
 
 shutdown /s /t 60 /c "Maintenance Complete."
 
-choice /c c /t 60 /d c /n >nul 2>&1
+choice /c cn /t 60 /d n /n >nul 2>&1
 if !errorlevel! equ 1 (
     shutdown /a >nul 2>&1
     cls
