@@ -1,0 +1,16 @@
+Invoke-Command -ComputerName PC-03 -ScriptBlock {
+
+$action = New-ScheduledTaskAction -Execute "cmd.exe"
+
+$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(10)
+
+Register-ScheduledTask `
+    -TaskName "ShowTest" `
+    -Action $action `
+    -Trigger $trigger `
+    -RunLevel Highest `
+    -Force
+
+Start-ScheduledTask -TaskName "ShowTest"
+
+}
