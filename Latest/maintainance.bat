@@ -18,7 +18,7 @@ if errorlevel 1 (
 )
 
 echo [STEP 1] Running Health Script...
-powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0check-health.ps1"
+powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0Get-PCHealth.ps1"
 
 if errorlevel 1 (
     echo [ERROR] Health Script Failed.
