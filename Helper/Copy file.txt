@@ -1,0 +1,11 @@
+# Define your computers, source file (Path 1), and target destination (Path 2 PC names
+$sourcePath = "\\Server\SharedFolder\file.txt"      # Path 1 (must be accessible to target PCs)
+$destinationPath = "C:\LocalFolder\file.txt"       # Path 2 (local to the target PC)
+
+foreach ($pc in $pcs) {
+    Invoke-Command -ComputerName $pc -ScriptBlock {
+        # The $using: scope allows the remote session to access local variables
+        Copy-Item -Path $using:sourcePath -Destination $using:destinationPath -Force
+    }
+}
+
