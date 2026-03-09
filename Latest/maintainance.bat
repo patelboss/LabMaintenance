@@ -10,12 +10,12 @@ echo        LAB MASTER CONTROLLER
 echo ==========================================
 
 :: ---- ADMIN CHECK ----
-net session >nul 2>&1
-if errorlevel 1 (
-    echo [INFO] Requesting Administrator privileges...
-    powershell -Command "Start-Process '%~f0' -Verb RunAs"
-    exit /b
-)
+::net session >nul 2>&1
+::if errorlevel 1 (
+::    echo [INFO] Requesting Administrator privileges...
+::    powershell -Command "Start-Process '%~f0' -Verb RunAs"
+::    exit /b
+::)
 
 echo [STEP 1] Running Health Script...
 powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0Get-PCHealth.ps1"
