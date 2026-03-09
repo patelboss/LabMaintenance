@@ -13,13 +13,13 @@ echo active > "%SIGNAL%"
 :: ==================================================
 :: [2] VERIFY ADMIN
 :: ==================================================
-net session >nul 2>&1
-if errorlevel 1 (
-    color 0C
-    echo [ERROR] Run as Administrator.
-    pause
-    exit /b
-)
+::net session >nul 2>&1
+::if errorlevel 1 (
+::    color 0C
+::    echo [ERROR] Run as Administrator.
+::    pause
+::    exit /b
+::)
 
 :: ==================================================
 :: [3] START CPU WORKERS
