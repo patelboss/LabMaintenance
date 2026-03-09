@@ -1,0 +1,10 @@
+
+$pcs | ForEach-Object {
+    Invoke-Command -ComputerName $_ -ScriptBlock {
+        Start-Process "C:\Users\Lab_Data\maintainance.bat"
+    }
+  }
+
+  
+
+$pcs | ForEach-Object { Invoke-Command -ComputerName $_ -ScriptBlock { cmd /c "C:\Users\Lab_Data\maintainance.bat" } }
