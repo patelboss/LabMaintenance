@@ -1,0 +1,7 @@
+# Create Inbound Rule for LocalSend (TCP)
+New-NetFirewallRule -DisplayName "LocalSend-TCP" -Direction Inbound -LocalPort 53317 -Protocol TCP -Action Allow -Description "Allows LocalSend file transfers"
+
+# Create Inbound Rule for LocalSend (UDP)
+New-NetFirewallRule -DisplayName "LocalSend-UDP" -Direction Inbound -LocalPort 53317 -Protocol UDP -Action Allow -Description "Allows LocalSend device discovery"
+
+Get-NetFirewallRule -DisplayName "LocalSend*" | Select-Object DisplayName, Enabled, Direction, Action
