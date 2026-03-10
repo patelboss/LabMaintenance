@@ -1,11 +1,26 @@
-# Define your computers, source file (Path 1), and target destination (Path 2 PC names
-$sourcePath = "\\Server\SharedFolder\file.txt"      # Path 1 (must be accessible to target PCs)
-$destinationPath = "C:\LocalFolder\file.txt"       # Path 2 (local to the target PC)
+$sourcePath = "\\PC-01\Installer\*"      
+$destinationPath = "C:\LocalFolder\"      
 
 foreach ($pc in $pcs) {
-    Invoke-Command -ComputerName $pc -ScriptBlock {
-        # The $using: scope allows the remote session to access local variables
-        Copy-Item -Path $using:sourcePath -Destination $using:destinationPath -Force
+    Write-Host "Processing $pc..." -ForegroundColor Cyan
+    
+    try {
+        $session = New-PSSession -ComputerName $pc -ErrorAction Stop
+        Invoke-Command -Session $session -ScriptBlock { 
+            if (!(Test-Path $using:destinationPath)) { 
+                Write-Host "Creating directory: $using:destinationPath"
+                New-Item -ItemType Directory -Path $using:destinationPath -Force | Out-Null
+            } 
+        }
+
+        Write-Host "Copying files to $pc..."
+        Copy-Item -Path $sourcePath -Destination $destinationPath -ToSession $session -Recurse -Force
+        
+        # 4. Cleanup
+        Remove-PSSession $session
+        Write-Host "Successfully updated $pc" -ForegroundColor Green
+    }
+    catch {
+        Write-Warning "Failed to process $pc. Error: $_"
     }
 }
-
