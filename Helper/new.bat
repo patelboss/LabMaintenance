@@ -11,10 +11,11 @@ set "ICONS=%BASE%Icons"
 set "LABDATA=%BASE%Lab_Data"
 set "EARTH=%BASE%earth.exe"
 set "QGIS=%BASE%QGIS.msi"
+set "PEAZIP=%BASE%peazip-10.9.0.WIN64.exe"
 set "WALLSRC=%BASE%wallpaper.png"
 
 set "PROGDIR=C:\Program Files\Lab_Data"
-set "WALLDEST=C:\Windows\Web\Wallpaper\LabWallpaper.png"
+set "WALLDEST=C:\wallpaper.png"
 
 :: ==================================================
 :: ADMIN CHECK
@@ -31,19 +32,9 @@ echo    RUNNING LAB DEPLOYMENT
 echo ======================================
 
 :: ==================================================
-:: INSTALL FONTS (Copy + Registry Register)
-:: ==================================================
-if exist "%FONTS%" (
-    echo [1/7] Installing Fonts...
-    copy "%FONTS%\*" "%windir%\Fonts\" /y >nul
-    :: This PowerShell snippet registers the fonts in the Registry
-    powershell -command "$objShell = New-Object -ComObject Shell.Application; $objFolder = $objShell.Namespace(0x14); Get-ChildItem '%FONTS%' | ForEach-Object { $objFolder.CopyHere($_.FullName, 0x10) }"
-)
-
-:: ==================================================
 :: CLEAN DESKTOP (Public and Current User)
 :: ==================================================
-echo [2/7] Cleaning Desktop Icons...
+echo [1/8] Cleaning Desktop Icons...
 del "%PUBLIC%\Desktop\*" /f /q >nul 2>&1
 del "%USERPROFILE%\Desktop\*" /f /q >nul 2>&1
 
@@ -51,7 +42,7 @@ del "%USERPROFILE%\Desktop\*" /f /q >nul 2>&1
 :: COPY ICONS
 :: ==================================================
 if exist "%ICONS%" (
-    echo [3/7] Deploying Lab Icons...
+    echo [2/8] Deploying Lab Icons...
     xcopy "%ICONS%\*" "%PUBLIC%\Desktop\" /s /e /y /i >nul
 )
 
@@ -59,7 +50,7 @@ if exist "%ICONS%" (
 :: COPY LAB DATA
 :: ==================================================
 if exist "%LABDATA%" (
-    echo [4/7] Copying Lab Data to Program Files...
+    echo [3/8] Copying Lab Data to Program Files...
     if not exist "%PROGDIR%" mkdir "%PROGDIR%"
     xcopy "%LABDATA%\*" "%PROGDIR%\" /s /e /y /i >nul
 )
@@ -67,29 +58,37 @@ if exist "%LABDATA%" (
 :: ==================================================
 :: INSTALL SOFTWARE (Silent)
 :: ==================================================
-echo [5/7] Installing Google Earth...
+echo [4/8] Installing Google Earth...
 if exist "%EARTH%" (
     start /wait "" "%EARTH%" /S /v/qn
 )
 
-echo [6/7] Installing QGIS...
+echo [5/8] Installing QGIS...
 if exist "%QGIS%" (
     msiexec /i "%QGIS%" /qn /norestart
 )
 
+echo [6/8] Installing PeaZip...
+if exist "%PEAZIP%" (
+    start /wait "" "%PEAZIP%" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
+)
+
 :: ==================================================
-:: SET WALLPAPER
+:: COPY WALLPAPER FILE ONLY
 :: ==================================================
-echo [7/7] Setting Wallpaper...
+echo [7/8] Copying Wallpaper to C:\...
 if exist "%WALLSRC%" (
-    if not exist "C:\Windows\Web\Wallpaper" mkdir "C:\Windows\Web\Wallpaper"
     copy "%WALLSRC%" "%WALLDEST%" /y >nul
-    
-    reg add "HKCU\Control Panel\Desktop" /v Wallpaper /t REG_SZ /d "%WALLDEST%" /f >nul
-    reg add "HKCU\Control Panel\Desktop" /v WallpaperStyle /t REG_SZ /d 2 /f >nul
-    
-    :: Force refresh
-    powershell -command "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Wallpaper { [DllImport(\"user32.dll\", CharSet=CharSet.Auto)] public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni); }'; [Wallpaper]::SystemParametersInfo(20, 0, '%WALLDEST%', 3)"
+)
+
+:: ==================================================
+:: INSTALL FONTS (Copy + Registry Register) - MOVED TO LAST
+:: ==================================================
+if exist "%FONTS%" (
+    echo [8/8] Installing Fonts...
+    copy "%FONTS%\*" "%windir%\Fonts\" /y >nul
+    :: Registering fonts via PowerShell
+    powershell -command "$objShell = New-Object -ComObject Shell.Application; $objFolder = $objShell.Namespace(0x14); Get-ChildItem '%FONTS%' | ForEach-Object { $objFolder.CopyHere($_.FullName, 0x10) }"
 )
 
 :: ==================================================
