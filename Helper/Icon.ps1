@@ -1,5 +1,4 @@
-$TargetPCs = @("PC-01", "PC-02", "PC-03") # Replace with your actual PC names or IPs
-
+$TargetPCs = Get-Content "C:\Users\labadmin\Lab_Data\PC_Id.txt"
 foreach ($pc in $TargetPCs) {
     Write-Host "Processing $pc..." -ForegroundColor Cyan
     
@@ -11,7 +10,7 @@ foreach ($pc in $TargetPCs) {
     
     # 2. Copy EVERYTHING from your Master folder to the Remote PC
     # This includes CL1-3, the .exe, the .dok, and the wallpaper
-    Copy-Item "C:\MasterFiles\*" $remoteTemp -Recurse -Force
+    Copy-Item "D:\inst\*" $remoteTemp -Recurse -Force
 
     # 3. Execute the commands INSIDE the Remote PC
     Invoke-Command -ComputerName $pc -ScriptBlock {
