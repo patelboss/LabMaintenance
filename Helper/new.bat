@@ -1,12 +1,11 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title Lab Setup Script
+title Lab Setup Script - Enhanced
 
 :: ==================================================
-:: BASE DIRECTORY (Location of script)
+:: BASE DIRECTORY
 :: ==================================================
 set "BASE=%~dp0"
-
 set "FONTS=%BASE%Fonts"
 set "ICONS=%BASE%Icons"
 set "LABDATA=%BASE%Lab_Data"
@@ -14,97 +13,91 @@ set "EARTH=%BASE%earth.exe"
 set "QGIS=%BASE%QGIS.msi"
 set "WALLSRC=%BASE%wallpaper.png"
 
-set "DESKTOP=%PUBLIC%\Desktop"
 set "PROGDIR=C:\Program Files\Lab_Data"
-set "WALLDEST=C:\Windows\Web\wallpaper.png"
+set "WALLDEST=C:\Windows\Web\Wallpaper\LabWallpaper.png"
 
 :: ==================================================
 :: ADMIN CHECK
 :: ==================================================
 net session >nul 2>&1
 if %errorlevel% neq 0 (
- echo Requesting Administrator privileges...
- powershell -Command "Start-Process '%~f0' -Verb RunAs"
- exit
+    powershell -Command "Start-Process '%~f0' -Verb RunAs"
+    exit /b
 )
 
 echo.
 echo ======================================
-echo LAB SETUP STARTING
+echo    RUNNING LAB DEPLOYMENT
 echo ======================================
-echo.
 
 :: ==================================================
-:: INSTALL FONTS
+:: INSTALL FONTS (Copy + Registry Register)
 :: ==================================================
-echo Installing Fonts...
-
 if exist "%FONTS%" (
- for %%F in ("%FONTS%\*.ttf" "%FONTS%\*.otf") do (
-  echo Installing %%~nxF
-  copy "%%F" "%windir%\Fonts\" /y >nul
- )
+    echo [1/7] Installing Fonts...
+    copy "%FONTS%\*" "%windir%\Fonts\" /y >nul
+    :: This PowerShell snippet registers the fonts in the Registry
+    powershell -command "$objShell = New-Object -ComObject Shell.Application; $objFolder = $objShell.Namespace(0x14); Get-ChildItem '%FONTS%' | ForEach-Object { $objFolder.CopyHere($_.FullName, 0x10) }"
 )
 
 :: ==================================================
-:: CLEAN DESKTOP
+:: CLEAN DESKTOP (Public and Current User)
 :: ==================================================
-echo Cleaning Desktop...
-del "%DESKTOP%\*" /f /q >nul 2>&1
+echo [2/7] Cleaning Desktop Icons...
+del "%PUBLIC%\Desktop\*" /f /q >nul 2>&1
+del "%USERPROFILE%\Desktop\*" /f /q >nul 2>&1
 
 :: ==================================================
 :: COPY ICONS
 :: ==================================================
-echo Copying Icons...
-
 if exist "%ICONS%" (
- xcopy "%ICONS%\*" "%DESKTOP%\" /s /e /y /i >nul
+    echo [3/7] Deploying Lab Icons...
+    xcopy "%ICONS%\*" "%PUBLIC%\Desktop\" /s /e /y /i >nul
 )
 
 :: ==================================================
 :: COPY LAB DATA
 :: ==================================================
-echo Copying Lab Data...
-
 if exist "%LABDATA%" (
- mkdir "%PROGDIR%" >nul 2>&1
- xcopy "%LABDATA%\*" "%PROGDIR%\" /s /e /y /i >nul
+    echo [4/7] Copying Lab Data to Program Files...
+    if not exist "%PROGDIR%" mkdir "%PROGDIR%"
+    xcopy "%LABDATA%\*" "%PROGDIR%\" /s /e /y /i >nul
 )
 
 :: ==================================================
-:: INSTALL GOOGLE EARTH
+:: INSTALL SOFTWARE (Silent)
 :: ==================================================
-echo Installing Google Earth...
-
+echo [5/7] Installing Google Earth...
 if exist "%EARTH%" (
- start /wait "" "%EARTH%" /silent /norestart
+    start /wait "" "%EARTH%" /S /v/qn
 )
 
-:: ==================================================
-:: INSTALL QGIS
-:: ==================================================
-echo Installing QGIS...
-
+echo [6/7] Installing QGIS...
 if exist "%QGIS%" (
- msiexec /i "%QGIS%" /qn /norestart
+    msiexec /i "%QGIS%" /qn /norestart
 )
 
 :: ==================================================
 :: SET WALLPAPER
 :: ==================================================
-echo Setting Wallpaper...
-
-copy "%WALLSRC%" "%WALLDEST%" /y >nul
-
-reg add "HKCU\Control Panel\Desktop" /v Wallpaper /t REG_SZ /d "%WALLDEST%" /f >nul
-reg add "HKCU\Control Panel\Desktop" /v WallpaperStyle /t REG_SZ /d 2 /f >nul
-reg add "HKCU\Control Panel\Desktop" /v TileWallpaper /t REG_SZ /d 0 /f >nul
-
-RUNDLL32.EXE user32.dll,UpdatePerUserSystemParameters
+echo [7/7] Setting Wallpaper...
+if exist "%WALLSRC%" (
+    if not exist "C:\Windows\Web\Wallpaper" mkdir "C:\Windows\Web\Wallpaper"
+    copy "%WALLSRC%" "%WALLDEST%" /y >nul
+    
+    reg add "HKCU\Control Panel\Desktop" /v Wallpaper /t REG_SZ /d "%WALLDEST%" /f >nul
+    reg add "HKCU\Control Panel\Desktop" /v WallpaperStyle /t REG_SZ /d 2 /f >nul
+    
+    :: Force refresh
+    powershell -command "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Wallpaper { [DllImport(\"user32.dll\", CharSet=CharSet.Auto)] public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni); }'; [Wallpaper]::SystemParametersInfo(20, 0, '%WALLDEST%', 3)"
+)
 
 :: ==================================================
-:: RESTART COMPUTER
+:: RESTART
 :: ==================================================
 echo.
-echo Setup Complete. Restarting in 10 seconds...
-shutdown /r /t 10
+echo Setup Complete. The system will restart in 15 seconds.
+echo Press any key to restart immediately.
+shutdown /r /t 15 /c "Lab Setup Complete. Rebooting to apply all changes."
+pause >nul
+shutdown /r /t 0
