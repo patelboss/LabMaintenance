@@ -3,80 +3,108 @@ setlocal EnableExtensions EnableDelayedExpansion
 title Lab Setup Script
 
 :: ==================================================
-:: BASE DIRECTORY (location of this script)
+:: BASE DIRECTORY (Location of script)
 :: ==================================================
 set "BASE=%~dp0"
 
 set "FONTS=%BASE%Fonts"
 set "ICONS=%BASE%Icons"
 set "LABDATA=%BASE%Lab_Data"
-set "WALL=%BASE%wallpaper.png"
+set "EARTH=%BASE%earth.exe"
+set "QGIS=%BASE%QGIS.msi"
+set "WALLSRC=%BASE%wallpaper.png"
 
 set "DESKTOP=%PUBLIC%\Desktop"
 set "PROGDIR=C:\Program Files\Lab_Data"
+set "WALLDEST=C:\Windows\Web\wallpaper.png"
 
 :: ==================================================
-:: CHECK ADMIN
+:: ADMIN CHECK
 :: ==================================================
 net session >nul 2>&1
-if errorlevel 1 (
+if %errorlevel% neq 0 (
  echo Requesting Administrator privileges...
  powershell -Command "Start-Process '%~f0' -Verb RunAs"
  exit
 )
 
 echo.
-echo ===== Installing Fonts =====
+echo ======================================
+echo LAB SETUP STARTING
+echo ======================================
+echo.
+
+:: ==================================================
+:: INSTALL FONTS
+:: ==================================================
+echo Installing Fonts...
 
 if exist "%FONTS%" (
  for %%F in ("%FONTS%\*.ttf" "%FONTS%\*.otf") do (
   echo Installing %%~nxF
-  copy "%%F" "%windir%\Fonts\" >nul
-  reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts" /v "%%~nxF" /t REG_SZ /d "%%~nxF" /f >nul
+  copy "%%F" "%windir%\Fonts\" /y >nul
  )
 )
 
-echo.
-echo ===== Cleaning Desktop =====
-
+:: ==================================================
+:: CLEAN DESKTOP
+:: ==================================================
+echo Cleaning Desktop...
 del "%DESKTOP%\*" /f /q >nul 2>&1
 
-echo.
-echo ===== Copying Icons =====
+:: ==================================================
+:: COPY ICONS
+:: ==================================================
+echo Copying Icons...
 
 if exist "%ICONS%" (
- xcopy "%ICONS%\*" "%DESKTOP%\" /s /e /y >nul
+ xcopy "%ICONS%\*" "%DESKTOP%\" /s /e /y /i >nul
 )
 
-echo.
-echo ===== Copying Lab Data =====
+:: ==================================================
+:: COPY LAB DATA
+:: ==================================================
+echo Copying Lab Data...
 
 if exist "%LABDATA%" (
  mkdir "%PROGDIR%" >nul 2>&1
- xcopy "%LABDATA%\*" "%PROGDIR%\" /s /e /y >nul
+ xcopy "%LABDATA%\*" "%PROGDIR%\" /s /e /y /i >nul
 )
 
-echo.
-echo ===== Installing Google Earth =====
+:: ==================================================
+:: INSTALL GOOGLE EARTH
+:: ==================================================
+echo Installing Google Earth...
 
-if exist "%BASE%earth.exe" (
- start /wait "" "%BASE%earth.exe" /S
+if exist "%EARTH%" (
+ start /wait "" "%EARTH%" /silent /norestart
 )
 
-echo.
-echo ===== Installing QGIS =====
+:: ==================================================
+:: INSTALL QGIS
+:: ==================================================
+echo Installing QGIS...
 
-if exist "%BASE%QGIS.msi" (
- msiexec /i "%BASE%QGIS.msi" /qn /norestart
+if exist "%QGIS%" (
+ msiexec /i "%QGIS%" /qn /norestart
 )
 
-echo.
-echo ===== Setting Wallpaper =====
+:: ==================================================
+:: SET WALLPAPER
+:: ==================================================
+echo Setting Wallpaper...
 
-reg add "HKCU\Control Panel\Desktop" /v Wallpaper /t REG_SZ /d "%WALL%" /f >nul
+copy "%WALLSRC%" "%WALLDEST%" /y >nul
+
+reg add "HKCU\Control Panel\Desktop" /v Wallpaper /t REG_SZ /d "%WALLDEST%" /f >nul
+reg add "HKCU\Control Panel\Desktop" /v WallpaperStyle /t REG_SZ /d 2 /f >nul
+reg add "HKCU\Control Panel\Desktop" /v TileWallpaper /t REG_SZ /d 0 /f >nul
+
 RUNDLL32.EXE user32.dll,UpdatePerUserSystemParameters
 
+:: ==================================================
+:: RESTART COMPUTER
+:: ==================================================
 echo.
-echo ===== Restarting Computer =====
-
+echo Setup Complete. Restarting in 10 seconds...
 shutdown /r /t 10
