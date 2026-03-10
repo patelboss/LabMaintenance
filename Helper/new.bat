@@ -60,7 +60,8 @@ if exist "%LABDATA%" (
 :: ==================================================
 echo [4/8] Installing Google Earth...
 if exist "%EARTH%" (
-    start /wait "" "%EARTH%" /S /v/qn
+
+    start /wait "" "%EARTH%" OMAHA=1
 )
 
 echo [5/8] Installing QGIS...
