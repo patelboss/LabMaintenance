@@ -189,8 +189,8 @@ $Apps = @(
     @{Name="Sonma Typing"; File="sonma.exe"; Args="/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /CLOSEAPPLICATIONS /qn MERGETASKS='!runapp'"}
     @{Name="Tipp10 Typing"; File="tipp10.exe"; Args="/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"}
     @{Name="Telegram"; File="telegram.exe"; Args="/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"}
-    @{Name="Google Earth Pro"; File="earth.exe"; Args="OMAHA=1"}
-    @{Name="Qgis"; File="QGIS.msi"; Args="/qn /norestart"}
+    #@{Name="Google Earth Pro"; File="earth.exe"; Args="OMAHA=1"}
+    #@{Name="Qgis"; File="QGIS.msi"; Args="/qn /norestart"}
     @{Name="PEAZIP"; File="peazip-10.9.0.WIN64.exe"; Args="/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-"}
 )
 
