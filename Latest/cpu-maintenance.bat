@@ -11,29 +11,41 @@ if exist "%SIGNAL%" del "%SIGNAL%"
 echo active > "%SIGNAL%"
 
 :: ==================================================
-:: [2] VERIFY ADMIN
+:: [2] START NOTIFICATION (FORCED)
 :: ==================================================
-::net session >nul 2>&1
-::if errorlevel 1 (
-::    color 0C
-::    echo [ERROR] Run as Administrator.
-::    pause
-::    exit /b
-::)
+msg * "Maintenance started. Contact admin for more information."
+echo [INFO] Maintenance started. Contact admin if needed.
 
 :: ==================================================
-:: [3] START CPU WORKERS
+:: [3] CPU LOAD CALCULATION (~66%)
 :: ==================================================
-set /a LOAD=%NUMBER_OF_PROCESSORS%/2
+set /a LOAD=(%NUMBER_OF_PROCESSORS%*2)/3
 if %LOAD% LSS 1 set LOAD=1
 
+:: ==================================================
+:: [4] START CPU WORKERS (REAL WORKLOAD)
+:: ==================================================
 for /L %%A in (1,1,%LOAD%) do (
     start "MAINT_WORKER" /min cmd /c ^
-    "for /L %%i in () do if not exist "%SIGNAL%" exit"
+    "setlocal EnableDelayedExpansion ^
+    set /a x=1 ^
+    for /L %%i in () do ( ^
+        if not exist "%SIGNAL%" exit ^
+        set /a x=(x*1103515245+12345) %% 2147483647 ^
+    )"
 )
 
 :: ==================================================
-:: [4] WARM-UP TIMER (INSTANT Q EXIT)
+:: [5] LOG SETUP (CSV)
+:: ==================================================
+set "LOGFILE=%~dp0maintenance_log.csv"
+
+if not exist "%LOGFILE%" (
+    echo Timestamp,PCID,RemainingSeconds,Workers > "%LOGFILE%"
+)
+
+:: ==================================================
+:: [6] MAIN TIMER (INSTANT Q EXIT)
 :: ==================================================
 set "REMAIN=1200"
 color 0B
@@ -49,14 +61,40 @@ echo.
 echo   [!] PRESS 'Q' TO QUIT IMMEDIATELY
 echo ==================================================
 
+:: --- INPUT CHECK ---
 choice /c qn /t 1 /d n /n >nul 2>&1
 if !errorlevel! equ 1 goto GRACEFUL_ABORT
 
+:: --- LOG EVERY 60 SECONDS ---
+set /a LOGMOD=REMAIN %% 60
+if !LOGMOD! EQU 0 (
+    echo %DATE% %TIME%,%COMPUTERNAME%,!REMAIN!,%LOAD%>> "%LOGFILE%"
+)
+
+:: --- 5-MIN HEARTBEAT STATUS ---
+set /a ELAPSED=1200-REMAIN
+if !ELAPSED! NEQ 0 (
+    set /a MOD=ELAPSED %% 300
+    if !MOD! EQU 0 (
+
+        set /a MINLEFT=REMAIN/60
+
+        echo ==================================================
+        echo [HEARTBEAT] MAINTENANCE ACTIVE
+        echo Status      : Running
+        echo Load Target : %LOAD% Workers (~66%% CPU)
+        echo Time Left   : !MINLEFT! minutes
+        echo Machine     : %COMPUTERNAME%
+        echo ==================================================
+    )
+)
+
+:: --- TIMER ---
 set /a REMAIN-=1
 if %REMAIN% GTR 0 goto WARMUP_LOOP
 
 :: ==================================================
-:: [5] COOLDOWN
+:: [7] COOLDOWN
 :: ==================================================
 :COOLDOWN
 if exist "%SIGNAL%" del "%SIGNAL%"
@@ -73,7 +111,7 @@ set /a CD-=1
 if %CD% GTR 0 goto CD_LOOP
 
 :: ==================================================
-:: [6] FINISH & SHUTDOWN PROMPT
+:: [8] FINISH & SHUTDOWN PROMPT
 :: ==================================================
 color 07
 cls
@@ -98,7 +136,7 @@ if !errorlevel! equ 1 (
 exit /b
 
 :: ==================================================
-:: [7] ABORT HANDLER
+:: [9] ABORT HANDLER
 :: ==================================================
 :GRACEFUL_ABORT
 if exist "%SIGNAL%" del "%SIGNAL%"
