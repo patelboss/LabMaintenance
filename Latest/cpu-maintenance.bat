@@ -1,6 +1,16 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 title Lab Maintenance – CPU Mode
+:: configuration 
+
+
+
+
+
+
+
+
+
 
 :: ==================================================
 :: [1] SIGNAL CONTROL
