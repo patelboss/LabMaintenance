@@ -2,16 +2,16 @@
 setlocal EnableExtensions EnableDelayedExpansion
 title Lab Maintenance – CPU Mode
 :: configuration 
-
-
-
-
-
-
-
-
-
-
+:: [L1] SIGNAL        : Temp file used to control/stop worker loops
+:: [L2] NUMBER_OF_PROCESSORS : System CPU core count used for load calculation
+:: [L3] LOAD          : Number of worker processes (~75%% of CPU cores)
+:: [L4] LOGFILE       : CSV file path storing maintenance logs
+:: [L5] REMAIN        : Total maintenance duration in seconds (1200 = 20 min)
+:: [L6] LOGMOD        : Controls 60-sec logging interval using modulo
+:: [L7] ELAPSED       : Time passed since start (used for 5-min trigger)
+:: [L8] MOD           : Controls 5-minute popup interval using modulo
+:: [L9] MINLEFT       : Remaining time converted to minutes for display
+:: [L10] MSG          : Popup message content for maintenance status
 :: ==================================================
 :: [1] SIGNAL CONTROL
 :: ==================================================
@@ -19,7 +19,6 @@ set "SIGNAL=%temp%\maint_active.tmp"
 
 if exist "%SIGNAL%" del "%SIGNAL%"
 echo active > "%SIGNAL%"
-
 :: ==================================================
 :: [2] START NOTIFICATION (FORCED)
 :: ==================================================
@@ -46,7 +45,10 @@ set "LOGFILE=%~dp0maintenance_log.csv"
 if not exist "%LOGFILE%" (
     echo Timestamp,PCID,RemainingSeconds,Workers > "%LOGFILE%"
 )
+set "LIVEFILE=%~dp0maintenance_live.csv"
 
+if exist "%LIVEFILE%" del "%LIVEFILE%"
+echo Timestamp,PCID,RemainingSeconds,Workers > "%LIVEFILE%"
 :: ==================================================
 :: [6] MAIN TIMER (INSTANT Q EXIT)
 :: ==================================================
@@ -63,6 +65,8 @@ echo   TIME REMAINING: %REMAIN%s
 echo.
 echo   [!] PRESS 'Q' TO QUIT IMMEDIATELY
 echo ==================================================
+:: --- LIVE LOG (APPEND EVERY SECOND) ---
+echo !DATE! !TIME!,%COMPUTERNAME%,!REMAIN!,%LOAD%>> "%LIVEFILE%"
 :: --- INPUT CHECK ---
 choice /c qn /t 1 /d n /n >nul 2>&1
 if !errorlevel! equ 1 goto GRACEFUL_ABORT
