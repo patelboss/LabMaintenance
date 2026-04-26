@@ -13,27 +13,19 @@ echo active > "%SIGNAL%"
 :: ==================================================
 :: [2] START NOTIFICATION (FORCED)
 :: ==================================================
-powershell -command "Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('Maintenance started. Contact admin for more information.')"
+start "" powershell -NoLogo -NoProfile -Command "Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('Maintenance started. Contact admin for more information.')"
 
 echo [INFO] Maintenance started. Contact admin if needed.
 
 :: ==================================================
 :: [3] CPU LOAD CALCULATION (~66%)
 :: ==================================================
-set /a LOAD=(%NUMBER_OF_PROCESSORS%*2)/3
+set /a LOAD=(%NUMBER_OF_PROCESSORS%*3)/4
 if %LOAD% LSS 1 set LOAD=1
 
-:: ==================================================
-:: [4] START CPU WORKERS (REAL WORKLOAD)
-:: ==================================================
 for /L %%A in (1,1,%LOAD%) do (
     start "MAINT_WORKER" /min cmd /c ^
-    "setlocal EnableDelayedExpansion ^
-    set /a x=1 ^
-    for /L %%i in () do ( ^
-        if not exist "%SIGNAL%" exit ^
-        set /a x=(x*1103515245+12345) %% 2147483647 ^
-    )"
+    "for /L %%i in () do if not exist "%SIGNAL%" exit"
 )
 
 :: ==================================================
@@ -71,32 +63,22 @@ set /a ELAPSED=1200-REMAIN
 
 :: --- LOG + 60-SEC HEARTBEAT ---
 if !LOGMOD! EQU 0 (
-
     set /a MINLEFT=REMAIN/60
-
-    :: Correct dynamic time logging
     echo !DATE! !TIME!,%COMPUTERNAME%,!REMAIN!,%LOAD%>> "%LOGFILE%"
-
-    :: Visible heartbeat
-    echo [LIVE] %COMPUTERNAME% | %LOAD%W | !MINLEFT!m left
+    echo [LIVE] %COMPUTERNAME% ^| %LOAD% Workers ^| !MINLEFT!m left
 )
 
 :: --- 5-MIN POPUP WARNING ---
 set /a MOD=ELAPSED %% 300
 if !ELAPSED! NEQ 0 if !MOD! EQU 0 (
-
     set /a MINLEFT=REMAIN/60
     set "MSG=Maintenance running on %COMPUTERNAME% - !MINLEFT! min left"
-
-    :: Try PowerShell popup
-    powershell -NoProfile -Command ^
-    "try {Add-Type -AssemblyName PresentationFramework;[System.Windows.MessageBox]::Show('%MSG%','Maintenance')} catch {}" >nul 2>&1
-
-    :: VBScript fallback
+    start "" powershell -NoProfile -Command "Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('%MSG%','Maintenance')"
     echo msgbox "%MSG%",64,"Maintenance" > "%temp%\msg.vbs"
     cscript //nologo "%temp%\msg.vbs" >nul 2>&1
     del "%temp%\msg.vbs"
 )
+
 :: --- TIMER ---
 set /a REMAIN-=1
 if %REMAIN% GTR 0 goto WARMUP_LOOP
@@ -130,7 +112,7 @@ echo   System will shutdown in 60 seconds.
 echo   PRESS 'C' TO CANCEL AND STAY ON PC.
 echo ==================================================
 
-shutdown /s /t 60 /c "Maintenance Complete."
+shutdown /s /t 60 /c "Maintenance Complete. will be SHUTDOWN after 1 minutes"
 
 choice /c cn /t 60 /d n /n >nul 2>&1
 if !errorlevel! equ 1 (
