@@ -28,7 +28,7 @@ foreach ($pc in $pcs) {
 
 
 
-
+#Push Version 
 # Assuming $pcs is already defined as your array of names/IPs
 # $pcs = Get-Content "C:\path\to\your\list.txt"
 
@@ -59,6 +59,50 @@ foreach ($pc in $pcs) {
     }
     finally {
         # Clean up the session immediately to free up resources
+        if ($session) {
+            Remove-PSSession $session
+        }
+    }
+}
+
+
+#Pull Version 
+
+$pcs = Get-Content "C:\path\to\your\list.txt"
+
+# Path on CLIENT PCs (source)
+$SourcePath = "C:\Program Files\Lab_data\cpu-maintenance"
+
+# Path on ADMIN PC (destination root)
+$DestPath   = "C:\Collected_From_PCs"
+
+foreach ($pc in $pcs) {
+    Write-Host "Processing $pc..." -ForegroundColor Cyan
+    
+    try {
+        # Establish session
+        $session = New-PSSession -ComputerName $pc -ErrorAction Stop
+
+        # Create per-PC folder on admin side
+        $LocalDest = Join-Path $DestPath $pc
+        if (-not (Test-Path $LocalDest)) {
+            New-Item -ItemType Directory -Path $LocalDest -Force | Out-Null
+        }
+
+        # Pull from client → admin
+        Copy-Item -FromSession $session `
+                  -Path $SourcePath `
+                  -Destination $LocalDest `
+                  -Recurse `
+                  -Force `
+                  -ErrorAction Stop
+
+        Write-Host "Successfully collected from $pc" -ForegroundColor Green
+    }
+    catch {
+        Write-Warning "Failed to collect from $pc. Error: $($_.Exception.Message)"
+    }
+    finally {
         if ($session) {
             Remove-PSSession $session
         }
