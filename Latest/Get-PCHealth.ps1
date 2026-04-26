@@ -19,7 +19,7 @@ Write-Host "[LIVE] System Identity: $PCID" -ForegroundColor Green
 $IDNum = [int]($PCID -replace "[^0-9]", "")
 if (!$IDNum) { $IDNum = 1 } # Default if no numbers found
 #
-#$WaitTime = $IDNum * 10 
+$WaitTime = $IDNum * 5
 
 Write-Host "[LIVE] Staggering start for $WaitTime seconds..." -ForegroundColor Cyan
 Start-Sleep -Seconds $WaitTime
