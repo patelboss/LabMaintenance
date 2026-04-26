@@ -35,7 +35,7 @@ for /L %%A in (1,1,%LOAD%) do (
 :: ==================================================
 :: [4] WARM-UP TIMER (INSTANT Q EXIT)
 :: ==================================================
-set "REMAIN=20"
+set "REMAIN=1200"
 color 0B
 
 :WARMUP_LOOP
@@ -60,7 +60,7 @@ if %REMAIN% GTR 0 goto WARMUP_LOOP
 :: ==================================================
 :COOLDOWN
 if exist "%SIGNAL%" del "%SIGNAL%"
-set "CD=20"
+set "CD=600"
 color 0A
 
 :CD_LOOP
