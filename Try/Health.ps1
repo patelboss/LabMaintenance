@@ -23,7 +23,7 @@ if (Test-Path $PCIDFile) {
 # ==================================================
 # Convert ID to a number and wait (ID 1 = 10s, ID 2 = 20s, etc.)
 [int]$IDNum = $PCID
-$WaitTime = $IDNum * 10 
+$WaitTime = $IDNum * 5
 Write-Host "PC-$PCID: Waiting $WaitTime seconds to prevent network jam..." -ForegroundColor Cyan
 Start-Sleep -Seconds $WaitTime
 
