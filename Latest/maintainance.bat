@@ -14,7 +14,6 @@ powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0Get-PCHealth.ps1"
 
 if errorlevel 1 (
     echo [ERROR] Health Script Failed.
-#    pause
     exit /b
 )
 
