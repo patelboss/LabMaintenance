@@ -13,7 +13,8 @@ echo active > "%SIGNAL%"
 :: ==================================================
 :: [2] START NOTIFICATION (FORCED)
 :: ==================================================
-msg * "Maintenance started. Contact admin for more information."
+powershell -command "Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('Maintenance started. Contact admin for more information.')"
+
 echo [INFO] Maintenance started. Contact admin if needed.
 
 :: ==================================================
@@ -60,35 +61,42 @@ echo   TIME REMAINING: %REMAIN%s
 echo.
 echo   [!] PRESS 'Q' TO QUIT IMMEDIATELY
 echo ==================================================
-
 :: --- INPUT CHECK ---
 choice /c qn /t 1 /d n /n >nul 2>&1
 if !errorlevel! equ 1 goto GRACEFUL_ABORT
 
-:: --- LOG EVERY 60 SECONDS ---
+:: --- COMMON CALCULATIONS ---
 set /a LOGMOD=REMAIN %% 60
-if !LOGMOD! EQU 0 (
-    echo %DATE% %TIME%,%COMPUTERNAME%,!REMAIN!,%LOAD%>> "%LOGFILE%"
-)
-
-:: --- 5-MIN HEARTBEAT STATUS ---
 set /a ELAPSED=1200-REMAIN
-if !ELAPSED! NEQ 0 (
-    set /a MOD=ELAPSED %% 300
-    if !MOD! EQU 0 (
 
-        set /a MINLEFT=REMAIN/60
+:: --- LOG + 60-SEC HEARTBEAT ---
+if !LOGMOD! EQU 0 (
 
-        echo ==================================================
-        echo [HEARTBEAT] MAINTENANCE ACTIVE
-        echo Status      : Running
-        echo Load Target : %LOAD% Workers (~66%% CPU)
-        echo Time Left   : !MINLEFT! minutes
-        echo Machine     : %COMPUTERNAME%
-        echo ==================================================
-    )
+    set /a MINLEFT=REMAIN/60
+
+    :: Correct dynamic time logging
+    echo !DATE! !TIME!,%COMPUTERNAME%,!REMAIN!,%LOAD%>> "%LOGFILE%"
+
+    :: Visible heartbeat
+    echo [LIVE] %COMPUTERNAME% | %LOAD%W | !MINLEFT!m left
 )
 
+:: --- 5-MIN POPUP WARNING ---
+set /a MOD=ELAPSED %% 300
+if !ELAPSED! NEQ 0 if !MOD! EQU 0 (
+
+    set /a MINLEFT=REMAIN/60
+    set "MSG=Maintenance running on %COMPUTERNAME% - !MINLEFT! min left"
+
+    :: Try PowerShell popup
+    powershell -NoProfile -Command ^
+    "try {Add-Type -AssemblyName PresentationFramework;[System.Windows.MessageBox]::Show('%MSG%','Maintenance')} catch {}" >nul 2>&1
+
+    :: VBScript fallback
+    echo msgbox "%MSG%",64,"Maintenance" > "%temp%\msg.vbs"
+    cscript //nologo "%temp%\msg.vbs" >nul 2>&1
+    del "%temp%\msg.vbs"
+)
 :: --- TIMER ---
 set /a REMAIN-=1
 if %REMAIN% GTR 0 goto WARMUP_LOOP
