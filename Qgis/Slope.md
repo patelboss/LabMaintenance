@@ -17,13 +17,10 @@ Here is your fully refined, rewritten blueprint to execute this perfectly:
 #### Step 3: Extract the Local Base Floors
  * **Tool:** Field Calculator (Open the attribute table of your freshly joined point layer).
  * **Settings:** Create a new **Decimal number (real)** field named **DN_Min**.
- * **Expression:** ```sql
-   minimum("DN", "COMPARTMENT")
-   ```
+ * **Expression:** ```sql minimum("DN", "COMPARTMENT")```
    *(This isolates the lowest point independently for every single compartment boundary).*
+
    
-   
-   ```
 #### Step 4: Calculate the Absolute Height Field
 Instead of doing the math straight in the label expression, let's create a permanent field for it so your symbology engine can read it too!
  * **Tool:** Field Calculator (on the same point layer).
