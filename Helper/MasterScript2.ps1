@@ -1,7 +1,7 @@
 function Read-ChoiceWithTimeout {
     param(
         [string]$Prompt,
-        [int]$TimeoutSeconds = 10,
+        [int]$TimeoutSeconds = 15,
         [string]$Default = ""
     )
 
@@ -17,7 +17,11 @@ function Read-ChoiceWithTimeout {
 
             switch ($key.Key) {
                 'Enter' {
-                    break
+                    if ([string]::IsNullOrWhiteSpace($input)) {
+                        return $Default
+                    }
+
+                    return $input.Trim()
                 }
 
                 'Backspace' {
@@ -300,8 +304,7 @@ while ($true) {
         "0" {
             Write-Host ""
             Write-Host "Exiting..." -ForegroundColor Cyan
-            return
-            
+            break
         }
 
         default {
