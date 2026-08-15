@@ -1,7 +1,7 @@
 function Read-ChoiceWithTimeout {
     param(
         [string]$Prompt,
-        [int]$TimeoutSeconds = 15,
+        [int]$TimeoutSeconds = 10,
         [string]$Default = ""
     )
 
@@ -49,7 +49,6 @@ function Read-ChoiceWithTimeout {
     return $input.Trim()
 }
 
-
 function Read-YesNoWithTimeout {
     param(
         [string]$Prompt,
@@ -57,11 +56,7 @@ function Read-YesNoWithTimeout {
         [string]$Default = "N"
     )
 
-    $result = Read-ChoiceWithTimeout `
-        -Prompt $Prompt `
-        -TimeoutSeconds $TimeoutSeconds `
-        -Default $Default
-
+    $result = Read-ChoiceWithTimeout -Prompt $Prompt -TimeoutSeconds $TimeoutSeconds -Default $Default
     if ([string]::IsNullOrWhiteSpace($result)) {
         return $Default.ToUpper()
     }
@@ -69,33 +64,26 @@ function Read-YesNoWithTimeout {
     return $result.ToUpper()
 }
 
-
 Clear-Host
-
 Write-Host "==========================================" -ForegroundColor Yellow
 Write-Host "         LAB ADMINISTRATOR TOOLKIT        " -ForegroundColor Yellow
 Write-Host "==========================================" -ForegroundColor Yellow
 Write-Host ""
-
 Write-Host "This tool works with the PC list stored in:" -ForegroundColor Cyan
 Write-Host "C:\Desktop\pc_list.txt"
 Write-Host ""
-
 Write-Host "Choose what you want to do:" -ForegroundColor Cyan
 Write-Host " 1) Copy File To All PC"
 Write-Host " 2) Get File From All PC at same dir"
 Write-Host " 3) Shutdown All Computers"
 Write-Host " 4) Restart All Computers"
-Write-Host " 5) Start Maintainance"
+Write-Host " 5) Start Maintainance (future use)"
 Write-Host " 0) Exit"
 Write-Host ""
-
 Write-Host "Tip: If you do nothing, the menu will time out and exit." -ForegroundColor DarkGray
 Write-Host ""
 
-
 $pcListPath = "C:\Desktop\pc_list.txt"
-
 if (-not (Test-Path $pcListPath)) {
     Write-Warning "PC list file not found: $pcListPath"
     return
@@ -103,33 +91,22 @@ if (-not (Test-Path $pcListPath)) {
 
 $pcs = Get-Content $pcListPath
 
-
 while ($true) {
-
     Write-Host ""
-
-    $choice = Read-ChoiceWithTimeout `
-        -Prompt "Enter your choice (0-5)" `
-        -TimeoutSeconds 20 `
-        -Default "0"
-
+    $choice = Read-ChoiceWithTimeout -Prompt "Enter your choice (0-5)" -TimeoutSeconds 20 -Default "0"
 
     switch ($choice) {
-
         "1" {
             Clear-Host
-
             Write-Host "==========================================" -ForegroundColor Yellow
             Write-Host " Remote File Copy (Admin -> Client PCs)" -ForegroundColor Yellow
             Write-Host "==========================================" -ForegroundColor Yellow
             Write-Host ""
-
             Write-Host "This script will:" -ForegroundColor Cyan
             Write-Host " • Copy a file/folder from this PC to all client PCs."
             Write-Host " • Overwrite existing files if they already exist."
             Write-Host " • Process each computer one by one."
             Write-Host ""
-
             Write-Host "What to enter:" -ForegroundColor Cyan
             Write-Host " • Source path: file/folder on this PC"
             Write-Host " • Destination path: location on client PCs"
@@ -138,21 +115,14 @@ while ($true) {
             $SourcePath = Read-Host "Enter the source file/folder path on this PC"
             $DestPath = Read-Host "Enter the destination path on client PCs"
 
-
             foreach ($pc in $pcs) {
-
                 Write-Host "Processing $pc..." -ForegroundColor Cyan
-
                 $session = $null
 
                 try {
+                    $session = New-PSSession -ComputerName $pc -ErrorAction Stop
 
-                    $session = New-PSSession `
-                        -ComputerName $pc `
-                        -ErrorAction Stop
-
-                    Copy-Item `
-                        -Path $SourcePath `
+                    Copy-Item -Path $SourcePath `
                         -Destination $DestPath `
                         -ToSession $session `
                         -Force `
@@ -161,41 +131,32 @@ while ($true) {
                     Write-Host "Successfully updated $pc" -ForegroundColor Green
                 }
                 catch {
-
                     Write-Warning "Failed to update $pc. Error: $($_.Exception.Message)"
                 }
                 finally {
-
                     if ($session) {
                         Remove-PSSession $session
                     }
                 }
             }
 
-
             Write-Host ""
             Write-Host "Process completed." -ForegroundColor Green
-
             Read-Host "Press Enter to return to menu"
-
             Clear-Host
         }
 
-
         "2" {
             Clear-Host
-
             Write-Host "==========================================" -ForegroundColor Yellow
             Write-Host " Remote File Collect (Client PCs -> Admin)" -ForegroundColor Yellow
             Write-Host "==========================================" -ForegroundColor Yellow
             Write-Host ""
-
             Write-Host "This script will:" -ForegroundColor Cyan
             Write-Host " • Copy a file/folder from all client PCs to this PC."
             Write-Host " • Create one folder per PC under the destination root."
             Write-Host " • Process each computer one by one."
             Write-Host ""
-
             Write-Host "What to enter:" -ForegroundColor Cyan
             Write-Host " • Source path: file/folder on client PCs"
             Write-Host " • Destination folder: root folder on this PC"
@@ -204,31 +165,19 @@ while ($true) {
             $SourcePath = Read-Host "Enter the source path on client PCs"
             $DestPath = Read-Host "Enter the destination folder on this PC"
 
-
             foreach ($pc in $pcs) {
-
                 Write-Host "Processing $pc..." -ForegroundColor Cyan
-
                 $session = $null
 
                 try {
-
-                    $session = New-PSSession `
-                        -ComputerName $pc `
-                        -ErrorAction Stop
+                    $session = New-PSSession -ComputerName $pc -ErrorAction Stop
 
                     $LocalDest = Join-Path $DestPath $pc
-
                     if (-not (Test-Path $LocalDest)) {
-                        New-Item `
-                            -ItemType Directory `
-                            -Path $LocalDest `
-                            -Force |
-                            Out-Null
+                        New-Item -ItemType Directory -Path $LocalDest -Force | Out-Null
                     }
 
-                    Copy-Item `
-                        -FromSession $session `
+                    Copy-Item -FromSession $session `
                         -Path $SourcePath `
                         -Destination $LocalDest `
                         -Recurse `
@@ -238,106 +187,72 @@ while ($true) {
                     Write-Host "Successfully collected from $pc" -ForegroundColor Green
                 }
                 catch {
-
                     Write-Warning "Failed to collect from $pc. Error: $($_.Exception.Message)"
                 }
                 finally {
-
                     if ($session) {
                         Remove-PSSession $session
                     }
                 }
             }
 
-
             Write-Host ""
             Write-Host "Process completed." -ForegroundColor Green
-
             Read-Host "Press Enter to return to menu"
-
             Clear-Host
         }
 
-
         "3" {
             Clear-Host
-
             Write-Host "==========================================" -ForegroundColor Red
             Write-Host "              SHUTDOWN MODE               " -ForegroundColor Red
             Write-Host "==========================================" -ForegroundColor Red
             Write-Host ""
-
             Write-Host "WARNING: This will shut down ALL computers in the list." -ForegroundColor Yellow
             Write-Host "This action is immediate." -ForegroundColor Yellow
             Write-Host ""
 
-            $confirm = Read-YesNoWithTimeout `
-                -Prompt "Type YES to continue, or press Enter to cancel" `
-                -TimeoutSeconds 15 `
-                -Default "N"
-
+            $confirm = Read-YesNoWithTimeout -Prompt "Type YES to continue, or press Enter to cancel" -TimeoutSeconds 15 -Default "N"
 
             if ($confirm -eq "YES") {
-
-                Invoke-Command `
-                    -ComputerName $pcs `
-                    -ScriptBlock {
-                        Stop-Computer -Force
-                    }
-
+                Invoke-Command -ComputerName $pcs -ScriptBlock {
+                    Stop-Computer -Force
+                }
                 Write-Host "Shutdown command sent to all computers." -ForegroundColor Green
             }
             else {
-
                 Write-Host "Shutdown cancelled." -ForegroundColor Cyan
             }
 
-
             Read-Host "Press Enter to return to menu"
-
             Clear-Host
         }
 
-
         "4" {
             Clear-Host
-
             Write-Host "==========================================" -ForegroundColor Red
             Write-Host "               RESTART MODE               " -ForegroundColor Red
             Write-Host "==========================================" -ForegroundColor Red
             Write-Host ""
-
             Write-Host "WARNING: This will restart ALL computers in the list." -ForegroundColor Yellow
             Write-Host "This action is immediate." -ForegroundColor Yellow
             Write-Host ""
 
-            $confirm = Read-YesNoWithTimeout `
-                -Prompt "Type YES to continue, or press Enter to cancel" `
-                -TimeoutSeconds 15 `
-                -Default "N"
-
+            $confirm = Read-YesNoWithTimeout -Prompt "Type YES to continue, or press Enter to cancel" -TimeoutSeconds 15 -Default "N"
 
             if ($confirm -eq "YES") {
-
-                Invoke-Command `
-                    -ComputerName $pcs `
-                    -ScriptBlock {
-                        Restart-Computer -Force
-                    }
-
+                Invoke-Command -ComputerName $pcs -ScriptBlock {
+                    Restart-Computer -Force
+                }
                 Write-Host "Restart command sent to all computers." -ForegroundColor Green
             }
             else {
-
                 Write-Host "Restart cancelled." -ForegroundColor Cyan
             }
 
-
             Read-Host "Press Enter to return to menu"
-
             Clear-Host
         }
-
 
         "5" {
             Clear-Host
@@ -347,147 +262,47 @@ while ($true) {
             Write-Host "==========================================" -ForegroundColor Yellow
             Write-Host ""
 
-            $MaintenanceBat = "C:\Program Files\Lab_Data\maintainance.bat"
-
-            Write-Host "Maintenance file:" -ForegroundColor Cyan
-            Write-Host $MaintenanceBat
+            Write-Host "Starting maintenance on all PCs..." -ForegroundColor Cyan
             Write-Host ""
 
-            if (-not (Test-Path $MaintenanceBat)) {
+            $mn = foreach ($pc in $pcs) {
 
-                Write-Warning "Maintenance BAT file was not found on the ADMIN PC."
-                Write-Host ""
+                Write-Host "Starting maintenance on $pc..." -ForegroundColor Cyan
 
-                Read-Host "Press Enter to return to menu"
-
-                Clear-Host
-
-                break
-            }
-
-            Write-Host "This will start maintenance on ALL PCs in the list." -ForegroundColor Yellow
-            Write-Host "The maintenance jobs will run in the background." -ForegroundColor Cyan
-            Write-Host ""
-
-            $confirm = Read-YesNoWithTimeout `
-                -Prompt "Type YES to start maintenance, or press Enter to cancel" `
-                -TimeoutSeconds 15 `
-                -Default "N"
-
-
-            if ($confirm -ne "YES") {
-
-                Write-Host "Maintenance cancelled." -ForegroundColor Cyan
-
-                Read-Host "Press Enter to return to menu"
-
-                Clear-Host
-
-                break
-            }
-
-
-            Write-Host ""
-            Write-Host "Starting maintenance..." -ForegroundColor Yellow
-            Write-Host ""
-
-
-            $MaintenanceJobs = @()
-
-
-            foreach ($pc in $pcs) {
-
-                Write-Host "Starting $pc..." -ForegroundColor Cyan
-
-                try {
-
-                    Get-Job `
-                        -Name "Maint_$pc" `
-                        -ErrorAction SilentlyContinue |
-                        Remove-Job `
-                            -Force `
-                            -ErrorAction SilentlyContinue
-
-
-                    $job = Invoke-Command `
-                        -ComputerName $pc `
-                        -AsJob `
-                        -JobName "Maint_$pc" `
-                        -ScriptBlock {
-
-                            & cmd.exe /c "C:\Program Files\Lab_Data\maintainance.bat" 2>&1
-
-                        } `
-                        -ErrorAction Stop
-
-
-                    $MaintenanceJobs += $job
-
-                    Write-Host "  Started: $pc" -ForegroundColor Green
-                }
-                catch {
-
-                    Write-Host "  FAILED: $pc" -ForegroundColor Red
-                    Write-Host "  $($_.Exception.Message)" -ForegroundColor DarkRed
+                Invoke-Command -ComputerName $pc -AsJob -JobName "Maint_$pc" -ScriptBlock {
+                    & cmd.exe /c "C:\Program Files\Lab_Data\maintainance.bat" 2>&1
                 }
             }
 
+            $mn | Export-Csv -Path "C:\Users\labadmin\Desktop\Log_Document (3).csv" -NoTypeInformation
 
             Write-Host ""
-
-            Write-Host "==========================================" -ForegroundColor Green
-            Write-Host "       MAINTENANCE JOBS STARTED          " -ForegroundColor Green
-            Write-Host "==========================================" -ForegroundColor Green
+            Write-Host "Maintenance jobs started." -ForegroundColor Green
             Write-Host ""
 
-
-            if ($MaintenanceJobs.Count -gt 0) {
-
-                $MaintenanceJobs |
-                    Select-Object Name, State, Location |
-                    Format-Table -AutoSize
-
-                Write-Host ""
-
-                Write-Host "Total jobs started: $($MaintenanceJobs.Count)" -ForegroundColor Green
-            }
-            else {
-
-                Write-Warning "No maintenance jobs were started."
-            }
-
+            $mn
 
             Write-Host ""
-
-            Write-Host "The maintenance processes are running in the background." -ForegroundColor Cyan
+            Write-Host "Current maintenance jobs:" -ForegroundColor Yellow
             Write-Host ""
 
-            Write-Host "Useful commands:" -ForegroundColor Yellow
-            Write-Host ""
-
-            Write-Host 'Get-Job Maint_*' -ForegroundColor White
-
-            Write-Host 'Get-Job Maint_* | Format-Table Name, State, Location' -ForegroundColor White
-
-            Write-Host 'Receive-Job -Name "Maint_PC-01" -Keep' -ForegroundColor White
-
-            Write-Host 'Get-Job Maint_* | Receive-Job -Keep' -ForegroundColor White
+            Get-Job Maint_PC-*
 
             Write-Host ""
-
+            Write-Host "Job information exported to:" -ForegroundColor Cyan
+            Write-Host "C:\Users\labadmin\Desktop\Log_Document (3).csv"
+            Write-Host ""
 
             Read-Host "Press Enter to return to menu"
-
             Clear-Host
         }
-
 
         "0" {
             Write-Host ""
             Write-Host "Exiting..." -ForegroundColor Cyan
-            break
+            return
+            
         }
-
 
         default {
             Write-Warning "Invalid choice. Enter a number from 0 to 5."
