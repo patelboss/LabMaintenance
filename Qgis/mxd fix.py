@@ -3,13 +3,13 @@ import arcpy
 aprx = arcpy.mp.ArcGISProject("CURRENT")
 active_map = aprx.activeMap
 
-# 1. Collect all group layers (e.g., 64I-4, 64F-9, etc.)
+# Collect all 14 group layers
 all_groups = [lyr for lyr in active_map.listLayers() if lyr.isGroupLayer]
 total_groups = len(all_groups)
 
-# 2. Set your batch window (change these values for each run)
-offset = 0      # Starting group index (0 = first group)
-limit = 10      # Number of groups to process in this run
+# Set your batch window
+offset = 0      # Start at group 0
+limit = 5       # Process 5 groups per run (change as needed)
 
 batch_groups = all_groups[offset : offset + limit]
 
@@ -20,7 +20,7 @@ for idx, grp in enumerate(batch_groups, start=offset):
     print(f"[{idx + 1}/{total_groups}] Starting Group: '{grp.name}'")
     updated_count = 0
     
-    # Iterate through child layers inside this specific group
+    # Iterate through child layers inside this group
     for lyr in grp.listLayers():
         if lyr.isGroupLayer:
             continue
@@ -34,8 +34,8 @@ for idx, grp in enumerate(batch_groups, start=offset):
                     new_path = old_path[:-4] + ".gdb"
                     
                     try:
-                        # auto_validate=False speeds up execution significantly
-                        lyr.updateConnectionProperties(old_path, new_path, auto_validate=False)
+                        # Use validate=False (valid for Layer objects)
+                        lyr.updateConnectionProperties(old_path, new_path, validate=False)
                         updated_count += 1
                     except Exception as e:
                         print(f"   [!] Failed on layer '{lyr.name}': {e}")
