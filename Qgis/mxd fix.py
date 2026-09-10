@@ -1,3 +1,5 @@
+
+
 import arcpy
 
 aprx = arcpy.mp.ArcGISProject("CURRENT")
@@ -46,3 +48,23 @@ for idx, grp in enumerate(batch_groups, start=offset):
     print(f"   -> Finished '{grp.name}' ({updated_count} layers modified).\n")
 
 print("Batch complete. Check the layer source properties now.")
+
+
+
+import arcpy
+
+aprx = arcpy.mp.ArcGISProject("CURRENT")
+
+# Save project state first to commit the dictionary updates
+aprx.save()
+
+# Force map view reset and redraw
+active_view = aprx.activeView
+if active_view:
+    # Clear selection/view cache and pan/zoom refresh
+    active_view.camera.scale = active_view.camera.scale
+
+# Clear geoprocessing workspace cache
+arcpy.ClearWorkspaceCache_management()
+
+print("Cache cleared and view refreshed.")
